@@ -1,5 +1,16 @@
 <?php
-// api/tests/BooksTest.php
+/**
+ * API tests for Book entity endpoints.
+ *
+ * PHP version 8.1
+ *
+ * @category Test
+ * @package  App\Tests
+ * @author   John Doe <john.doe@example.com>
+ * @license  MIT https://opensource.org/licenses/MIT
+ * @version  GIT: <git_id>
+ * @link     https://api-platform.com
+ */
 
 namespace App\Tests;
 
@@ -10,11 +21,25 @@ use Zenstruck\Foundry\Test\ResetDatabase;
 use ApiPlatform\Symfony\Bundle\Test\ApiTestCase;
 use Symfony\Component\HttpClient\Exception\ClientException;
 
+/**
+ * Test case for Book API endpoints.
+ *
+ * @category Test
+ * @package  App\Tests
+ * @author   John Doe <john.doe@example.com>
+ * @license  MIT https://opensource.org/licenses/MIT
+ * @link     https://api-platform.com
+ */
 class BooksTest extends ApiTestCase
 {
     // This trait provided by Foundry will take care of refreshing the database content to a known state before each test
     use ResetDatabase, Factories;
 
+    /**
+     * Test retrieving the collection of books.
+     *
+     * @return void
+     */
     public function testGetCollection(): void
     {
         // Create 100 books using our factory
@@ -28,19 +53,21 @@ class BooksTest extends ApiTestCase
         $this->assertResponseHeaderSame('content-type', 'application/ld+json; charset=utf-8');
 
         // Asserts that the returned JSON is a superset of this one
-        $this->assertJsonContains([
-            '@context' => '/contexts/Book',
-            '@id' => '/books',
-            '@type' => 'Collection',
-            'totalItems' => 100,
-            'view' => [
-                '@id' => '/books?page=1',
-                '@type' => 'PartialCollectionView',
-                'first' => '/books?page=1',
-                'last' => '/books?page=4',
-                'next' => '/books?page=2',
-            ],
-        ]);
+        $this->assertJsonContains(
+            [
+                '@context' => '/contexts/Book',
+                '@id' => '/books',
+                '@type' => 'Collection',
+                'totalItems' => 100,
+                'view' => [
+                    '@id' => '/books?page=1',
+                    '@type' => 'PartialCollectionView',
+                    'first' => '/books?page=1',
+                    'last' => '/books?page=4',
+                    'next' => '/books?page=2',
+                ],
+            ]
+        );
 
         // Because test fixtures are automatically loaded between each test, you can assert on them
         $this->assertCount(30, $response->toArray()['member']);
@@ -50,47 +77,66 @@ class BooksTest extends ApiTestCase
         $this->assertMatchesResourceCollectionJsonSchema(Book::class);
     }
 
+    /**
+     * Test creating a new book through the API.
+     *
+     * @return void
+     */
     public function testCreateBook(): void
     {
-        $response = static::createClient()->request('POST', '/books', [
-            'json' => [
+        $response = static::createClient()->request(
+            'POST',
+            '/books',
+            [
+                'json' => [
+                    'isbn' => '0099740915',
+                    'title' => 'The Handmaid\'s Tale',
+                    'description' => 'Brilliantly conceived and executed, this powerful evocation of twenty-first century America gives full rein to Margaret Atwood\'s devastating irony, wit and astute perception.',
+                    'author' => 'Margaret Atwood',
+                    'publicationDate' => '1985-07-31T00:00:00+00:00',
+                ],
+                'headers' => [
+                    'Content-Type' => 'application/ld+json',
+                    'Accept' => 'application/ld+json'
+                ]
+            ]
+        );
+
+        $this->assertResponseStatusCodeSame(201);
+        $this->assertResponseHeaderSame('content-type', 'application/ld+json; charset=utf-8');
+        $this->assertJsonContains(
+            [
+                '@context' => '/contexts/Book',
+                '@type' => 'Book',
                 'isbn' => '0099740915',
                 'title' => 'The Handmaid\'s Tale',
                 'description' => 'Brilliantly conceived and executed, this powerful evocation of twenty-first century America gives full rein to Margaret Atwood\'s devastating irony, wit and astute perception.',
                 'author' => 'Margaret Atwood',
                 'publicationDate' => '1985-07-31T00:00:00+00:00',
-            ],
-            'headers' => [
-                'Content-Type' => 'application/ld+json',
-                'Accept' => 'application/ld+json'
+                'reviews' => [],
             ]
-        ]);
-
-        $this->assertResponseStatusCodeSame(201);
-        $this->assertResponseHeaderSame('content-type', 'application/ld+json; charset=utf-8');
-        $this->assertJsonContains([
-            '@context' => '/contexts/Book',
-            '@type' => 'Book',
-            'isbn' => '0099740915',
-            'title' => 'The Handmaid\'s Tale',
-            'description' => 'Brilliantly conceived and executed, this powerful evocation of twenty-first century America gives full rein to Margaret Atwood\'s devastating irony, wit and astute perception.',
-            'author' => 'Margaret Atwood',
-            'publicationDate' => '1985-07-31T00:00:00+00:00',
-            'reviews' => [],
-        ]);
+        );
         $this->assertMatchesRegularExpression('~^/books/\d+$~', $response->toArray()['@id']);
         $this->assertMatchesResourceItemJsonSchema(Book::class);
     }
 
+    /**
+     * Test validation when creating an invalid book.
+     *
+     * @return void
+     */
     public function testCreateInvalidBook(): void
     {
         $client = static::createClient();
-        $response = $client->request('POST', '/books', [
-            'json' => [
-                'isbn' => 'invalid',
-            ],
-            'headers' => [
-                'Content-Type' => 'application/ld+json',
+        $response = $client->request(
+            'POST',
+            '/books',
+            [
+                'json' => [
+                    'isbn' => 'invalid',
+                ],
+                'headers' => [
+                    'Content-Type' => 'application/ld+json',
                 'Accept' => 'application/ld+json',
             ]
         ]);
@@ -124,6 +170,11 @@ class BooksTest extends ApiTestCase
         $this->assertStringContainsString('should not be null', $violationMap['publicationDate']);
     }
 
+    /**
+     * Test updating an existing book through the API.
+     *
+     * @return void
+     */
     public function testUpdateBook(): void
     {
         // Only create the book we need with a given ISBN
@@ -134,23 +185,34 @@ class BooksTest extends ApiTestCase
         $iri = $this->findIriBy(Book::class, ['isbn' => '9781344037075']);
 
         // Use the PATCH method here to do a partial update
-        $client->request('PATCH', $iri, [
-            'json' => [
-                'title' => 'updated title',
-            ],
-            'headers' => [
-                'Content-Type' => 'application/merge-patch+json',
+        $client->request(
+            'PATCH',
+            $iri,
+            [
+                'json' => [
+                    'title' => 'updated title',
+                ],
+                'headers' => [
+                    'Content-Type' => 'application/merge-patch+json',
+                ],
             ]
-        ]);
+        );
 
         $this->assertResponseIsSuccessful();
-        $this->assertJsonContains([
-            '@id' => $iri,
-            'isbn' => '9781344037075',
-            'title' => 'updated title',
-        ]);
+        $this->assertJsonContains(
+            [
+                '@id' => $iri,
+                'isbn' => '9781344037075',
+                'title' => 'updated title',
+            ]
+        );
     }
 
+    /**
+     * Test deleting a book through the API.
+     *
+     * @return void
+     */
     public function testDeleteBook(): void
     {
         // Only create the book we need with a given ISBN
