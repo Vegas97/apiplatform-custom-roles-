@@ -18,23 +18,23 @@ class Book
 
     #[ORM\Column(nullable: true)]
     #[Assert\Isbn]
-     public ?string $isbn = null;
+    public ?string $isbn = null;
 
-     #[ORM\Column]
+    #[ORM\Column]
     #[Assert\NotBlank]
-     public string $title = '';
+    public string $title = '';
 
-     #[ORM\Column(type: 'text')]
+    #[ORM\Column(type: 'text')]
     #[Assert\NotBlank]
-     public string $description = '';
+    public string $description = '';
 
-     #[ORM\Column]
+    #[ORM\Column]
     #[Assert\NotBlank]
-     public string $author = '';
+    public string $author = '';
 
-     #[ORM\Column]
+    #[ORM\Column]
     #[Assert\NotNull]
-     public ?\DateTimeImmutable $publicationDate = null;
+    public ?\DateTimeImmutable $publicationDate = null;
 
     /** @var Review[] Available reviews for this book. */
     #[ORM\OneToMany(targetEntity: Review::class, mappedBy: 'book', cascade: ['persist', 'remove'])]
