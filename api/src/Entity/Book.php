@@ -15,6 +15,8 @@
 namespace App\Entity;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\ApiProperty;
+use ApiPlatform\Metadata\Link;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
@@ -31,13 +33,14 @@ use Symfony\Component\Validator\Constraints as Assert;
  */
 #[ORM\Entity]
 #[ApiResource]
-class Book
+class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUnderscore
 {
     /**
      * The ID of this book.
      */
     #[ORM\Id, ORM\Column, ORM\GeneratedValue]
-    private ?int $_id = null;
+    #[ApiProperty(identifier: true)]
+    private ?int $id = null;
 
     /**
      * The ISBN of this book (or null if doesn't have one).
@@ -103,6 +106,6 @@ class Book
      */
     public function getId(): ?int
     {
-        return $this->_id;
+        return $this->id;
     }
 }

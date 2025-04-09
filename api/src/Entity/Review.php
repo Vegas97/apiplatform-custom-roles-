@@ -15,6 +15,8 @@
 namespace App\Entity;
 
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\ApiProperty;
+use ApiPlatform\Metadata\Link;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -30,13 +32,14 @@ use Symfony\Component\Validator\Constraints as Assert;
  */
 #[ORM\Entity]
 #[ApiResource]
-class Review
+class Review // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUnderscore
 {
     /**
      * The ID of this review.
      */
     #[ORM\Id, ORM\Column, ORM\GeneratedValue]
-    private ?int $_id = null;
+    #[ApiProperty(identifier: true)]
+    private ?int $id = null;
 
     /**
      * The rating of this review (between 0 and 5).
@@ -80,6 +83,6 @@ class Review
      */
     public function getId(): ?int
     {
-        return $this->_id;
+        return $this->id;
     }
 }
