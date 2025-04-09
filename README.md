@@ -1,47 +1,246 @@
 <h1 align="center"><a href="https://api-platform.com"><img src="https://api-platform.com/images/logos/Logo_Circle%20webby%20text%20blue.png" alt="API Platform" width="250" height="250"></a></h1>
 
-API Platform is a next-generation web framework designed to easily create API-first projects without compromising extensibility
-and flexibility:
+# API Platform: Technical Guide
 
-* Design your own data model as plain old PHP classes or [**import an existing ontology**](https://api-platform.com/docs/schema-generator).
-* **Expose in minutes a hypermedia REST or a GraphQL API** with pagination, data validation, access control, relation embedding,
-  filters, and error handling...
-* Benefit from Content Negotiation: [GraphQL](https://api-platform.com/docs/core/graphql/), [JSON-LD](https://json-ld.org), [Hydra](https://hydra-cg.com),
-  [HAL](https://github.com/mikekelly/hal_specification/blob/master/hal_specification.md), [JSON:API](https://jsonapi.org/), [YAML](https://yaml.org/), [JSON](https://www.json.org/), [XML](https://www.w3.org/XML/) and [CSV](https://www.ietf.org/rfc/rfc4180.txt) are supported out of the box.
-* Enjoy the **beautiful automatically generated API documentation** ([OpenAPI](https://api-platform.com/docs/core/openapi/)).
-* Add [**a convenient Material Design administration interface**](https://api-platform.com/docs/admin) built with [React](https://reactjs.org/)
-  without writing a line of code.
-* **Scaffold fully functional Progressive-Web-Apps and mobile apps** built with [Next.js](https://api-platform.com/docs/client-generator/nextjs/) (React),
-[Nuxt.js](https://api-platform.com/docs/client-generator/nuxtjs/) (Vue.js) or [React Native](https://api-platform.com/docs/client-generator/react-native/)
-thanks to [the client generator](https://api-platform.com/docs/client-generator/) (a Vue.js generator is also available).
-* Install a development environment and deploy your project in production using **[Docker](https://api-platform.com/docs/distribution)**
-and [Kubernetes](https://api-platform.com/docs/deployment/kubernetes).
-* Easily add **[OAuth](https://oauth.net/) authentication**.
-* Create specs and tests with **[a developer friendly API testing tool](https://api-platform.com/docs/distribution/testing/)**.
+Documentation:
 
-The official project documentation is available **[on the API Platform website](https://api-platform.com)**.
+[https://api-platform.com/docs/symfony/](https://api-platform.com/docs/symfony/)
 
-API Platform embraces open web standards and the
-[Linked Data](https://www.w3.org/standards/semanticweb/data) movement. Your API will automatically expose structured data.
-It means that your API Platform application is usable **out of the box** with technologies of
-the semantic web.
+API Platform is a powerful full-stack framework designed for building API-first projects. This README provides a comprehensive overview of API Platform's features, architecture, and implementation steps.
 
-It also means that **your SEO will be improved** because **[Google leverages these formats](https://developers.google.com/search/docs/guides/intro-structured-data)**.
+## Table of Contents
 
-Last but not least, the server component of API Platform is built on top of the [Symfony](https://symfony.com) framework,
-while client components leverage [React](https://reactjs.org/) ([Vue.js](https://vuejs.org/) flavors are also available).
-It means that you can:
+-   [Core Concepts](#core-concepts)
+-   [Installation and Setup](#installation-and-setup)
+-   [Data Modeling](#data-modeling)
+-   [Persistence Layer](#persistence-layer)
+-   [Validation](#validation)
+-   [API Features](#api-features)
+-   [GraphQL Support](#graphql-support)
+-   [Admin Interface](#admin-interface)
+-   [Client Applications](#client-applications)
+-   [Security and Performance](#security-and-performance)
+-   [Custom Roles Implementation](#custom-roles-implementation)
 
-* Use **thousands of Symfony bundles and React components** with API Platform.
-* Integrate API Platform in **any existing Symfony, React, or Vue application**.
-* Reuse **all your Symfony and JavaScript skills**, and benefit from the incredible amount of documentation available.
-* Enjoy the popular [Doctrine ORM](https://www.doctrine-project.org/projects/orm.html) (used by default, but fully optional:
-  you can use the data provider you want, including but not limited to MongoDB and Elasticsearch)
+## Core Concepts
 
-## Install
+API Platform is built on the following core principles:
 
-[Read the official "Getting Started" guide](https://api-platform.com/docs/distribution/).
+-   **API-First Development**: Design your API before implementing the underlying logic
+-   **Resource-Oriented Architecture**: Based on REST principles and resource modeling
+-   **Hypermedia-Driven APIs**: Leverages HATEOAS for discoverable APIs
+-   **Content Negotiation**: Supports multiple formats (JSON-LD, Hydra, HAL, JSON:API)
+-   **Standards Compliance**: Follows web standards and best practices
 
-## Credits
+## Installation and Setup
 
-Created by [Kévin Dunglas](https://dunglas.fr). Commercial support is available at [Les-Tilleuls.coop](https://les-tilleuls.coop).
+### Using Docker (Recommended)
+
+1. Download the API Platform distribution or generate a GitHub repository from the template:
+
+    ```bash
+    # Prefer the .tar.gz archive over .zip to avoid permission issues
+    ```
+
+2. Build and start the Docker containers:
+
+    ```bash
+    docker compose build --no-cache
+    docker compose up --wait
+    ```
+
+3. Access the different components:
+    - API: https://localhost/docs/
+    - Admin: https://localhost/admin/
+    - PWA: https://localhost/
+
+### Alternative Setup
+
+For non-Docker environments, you can install API Platform with Symfony Flex:
+
+```bash
+composer create-project symfony/skeleton my-api
+cd my-api
+composer require api
+```
+
+## Data Modeling
+
+API Platform uses PHP classes with attributes to define your API resources:
+
+```php
+// api/src/Entity/Book.php
+namespace App\Entity;
+
+use ApiPlatform\Metadata\ApiResource;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\ORM\Mapping as ORM;
+use Symfony\Component\Validator\Constraints as Assert;
+
+/** A book. */
+#[ORM\Entity]
+#[ApiResource]
+class Book
+{
+    /** The ID of this book. */
+    #[ORM\Id, ORM\Column, ORM\GeneratedValue]
+    private ?int $id = null;
+
+    /** The ISBN of this book (or null if doesn't have one). */
+    #[ORM\Column(nullable: true)]
+    #[Assert\Isbn]
+    public ?string $isbn = null;
+
+    /** The title of this book. */
+    #[ORM\Column]
+    #[Assert\NotBlank]
+    public string $title = '';
+
+    /** The description of this book. */
+    #[ORM\Column(type: 'text')]
+    #[Assert\NotBlank]
+    public string $description = '';
+
+    /** The author of this book. */
+    #[ORM\Column]
+    #[Assert\NotBlank]
+    public string $author = '';
+
+    /** The publication date of this book. */
+    #[ORM\Column]
+    #[Assert\NotNull]
+    public ?\DateTimeImmutable $publicationDate = null;
+
+    /** @var Review[] Available reviews for this book. */
+    #[ORM\OneToMany(targetEntity: Review::class, mappedBy: 'book', cascade: ['persist', 'remove'])]
+    public iterable $reviews;
+
+    public function __construct()
+    {
+        $this->reviews = new ArrayCollection();
+    }
+
+    public function getId(): ?int
+    {
+        return $this->id;
+    }
+}
+```
+
+## Persistence Layer
+
+### Doctrine ORM (Default)
+
+API Platform integrates seamlessly with Doctrine ORM:
+
+1. Add Doctrine mapping attributes to your entity classes
+2. Generate and run migrations:
+    ```bash
+    bin/console doctrine:migrations:diff
+    bin/console doctrine:migrations:migrate
+    ```
+
+### Alternative Persistence Systems
+
+API Platform supports multiple persistence systems:
+
+-   Doctrine MongoDB ODM
+-   Elasticsearch
+-   Custom state providers and processors
+
+## Validation
+
+API Platform uses the Symfony Validator component:
+
+```php
+// Add validation constraints using attributes
+#[Assert\NotBlank]
+public string $title = '';
+
+#[Assert\Range(min: 0, max: 5)]
+public int $rating = 0;
+```
+
+## API Features
+
+Out of the box, API Platform provides:
+
+-   **CRUD Operations**: Automatically generated for each resource
+-   **Pagination**: Built-in support for offset and cursor-based pagination
+-   **Filtering**: Extensive filtering capabilities
+-   **Sorting**: Sort collections by any property
+-   **Documentation**: Auto-generated OpenAPI/Swagger documentation
+-   **Content Negotiation**: Support for multiple formats through extensions or Accept headers
+
+## GraphQL Support
+
+Enable GraphQL support by installing the GraphQL package:
+
+```bash
+composer require api-platform/graphql
+```
+
+This provides:
+
+-   GraphQL API endpoint at `/graphql`
+-   GraphiQL UI for testing
+-   Support for queries and mutations
+-   100% Relay server specification compliance
+
+## Admin Interface
+
+API Platform includes a dynamic admin interface:
+
+-   Built with React Admin
+-   Material Design UI
+-   Progressive Web App
+-   Automatically generated from API documentation
+-   Fully customizable
+
+## Client Applications
+
+Generate client applications using the API Platform Client Generator:
+
+```bash
+docker compose exec pwa pnpm create @api-platform/client
+```
+
+Supported frameworks:
+
+-   Next.js
+-   Nuxt.js
+-   React/Redux
+-   Vue.js
+-   Quasar
+-   Vuetify
+-   React Native
+
+## Security and Performance
+
+API Platform includes:
+
+-   **Authentication**: Support for JWT, OAuth, and HTTP Basic
+-   **Authorization**: Fine-grained access control
+-   **CORS Support**: Configurable CORS headers
+-   **HTTP Caching**: Invalidation-based HTTP caching
+-   **Security Headers**: OWASP-compliant security headers
+
+## Custom Roles Implementation
+
+This project focuses on implementing custom roles in API Platform. Key aspects include:
+
+1. **Role-Based Access Control**: Implementing custom roles beyond the default Symfony roles
+2. **Resource-Level Permissions**: Controlling access to specific API resources based on roles
+3. **Operation-Level Permissions**: Restricting operations (GET, POST, PUT, DELETE) based on user roles
+4. **Field-Level Access Control**: Controlling visibility of specific fields based on user roles
+5. **Dynamic Permission Resolution**: Runtime permission evaluation based on user context
+
+### Implementation Steps
+
+1. Create custom security voters
+2. Configure access control in API resources
+3. Implement field-level access control
+4. Set up operation-based permissions
+5. Create custom security extensions
+
+For more information, visit the [API Platform documentation](https://api-platform.com/docs/).
