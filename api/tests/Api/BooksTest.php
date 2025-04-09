@@ -137,9 +137,10 @@ class BooksTest extends ApiTestCase
                 ],
                 'headers' => [
                     'Content-Type' => 'application/ld+json',
-                'Accept' => 'application/ld+json',
+                    'Accept' => 'application/ld+json',
+                ],
             ]
-        ]);
+        );
 
         $this->assertResponseStatusCodeSame(422);
 
