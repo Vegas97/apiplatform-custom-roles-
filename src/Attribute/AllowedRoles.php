@@ -102,9 +102,9 @@ class AllowedRoles
         // Get the required roles for this portal
         $requiredRoles = $this->getRolesForPortal($portalName);
 
-        // If no roles are required, allow access
+        // If no roles are required, deny access (empty array means no access)
         if (empty($requiredRoles)) {
-            return true;
+            return false;
         }
 
         // Check if the user has any of the required roles

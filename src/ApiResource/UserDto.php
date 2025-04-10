@@ -59,28 +59,29 @@ class UserDto
             ]
         )]
         #[Assert\NotBlank]
-        public readonly string $id = '',
+        public string $id = '',
 
         #[AllowedRoles(
             [
                 'admin' => ['ROLE_USER_ACCESS'],
                 'workspace' => ['ROLE_USER_ACCESS'],
+                'distributor' => ['ROLE_USER_ACCESS']
             ]
         )]
         #[Assert\NotBlank]
         #[Assert\Length(min: 3)]
-        public readonly string $username = '',
+        public string $username = '',
 
         #[AllowedRoles(
             [
                 'admin' => ['ROLE_USER_ACCESS'],
                 'workspace' => ['ROLE_USER_ACCESS'],
-                'distributor' => []
+                'distributor' => ['']
             ]
         )]
-        #[Assert\NotBlank]
+        #[Assert\NotNull]
         #[Assert\Email]
-        public readonly string $email = '',
+        public ?string $email = null,
 
         #[AllowedRoles(
             [
@@ -89,6 +90,6 @@ class UserDto
             ]
         )]
         #[Assert\NotNull]
-        public readonly ?DateTimeInterface $birthDate = null
+        public ?DateTimeInterface $birthDate = null
     ) {}
 }

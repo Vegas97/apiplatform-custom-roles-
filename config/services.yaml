@@ -22,3 +22,16 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+    
+    # Field Access Resolver service for role-based access control
+    App\Service\FieldAccessResolver:
+        arguments:
+            $logger: '@logger'
+
+    # User DTO Provider with role-based access control
+    App\State\UserDtoProvider:
+        arguments:
+            $fieldAccessResolver: '@App\Service\FieldAccessResolver'
+            $requestStack: '@request_stack'
+            $logger: '@logger'
+        tags: ['api_platform.state_provider']
