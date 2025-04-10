@@ -21,6 +21,7 @@ use ApiPlatform\Metadata\GetCollection;
 use App\State\UserDtoProvider;
 use Symfony\Component\Validator\Constraints as Assert;
 use DateTimeInterface;
+use App\Attribute\AllowedRoles;
 
 /**
  * User DTO for API responses.
@@ -49,16 +50,45 @@ class UserDto
      * @param DateTimeInterface $birthDate User birth date
      */
     public function __construct(
+
+        #[AllowedRoles(
+            [
+                'admin' => ['ROLE_USER_ACCESS'],
+                'workspace' => ['ROLE_USER_ACCESS'],
+                'distributor' => ['ROLE_USER_ACCESS']
+            ]
+        )]
         #[Assert\NotBlank]
         public readonly string $id = '',
+
+        #[AllowedRoles(
+            [
+                'admin' => ['ROLE_USER_ACCESS'],
+                'workspace' => ['ROLE_USER_ACCESS'],
+            ]
+        )]
         #[Assert\NotBlank]
         #[Assert\Length(min: 3)]
         public readonly string $username = '',
+
+        #[AllowedRoles(
+            [
+                'admin' => ['ROLE_USER_ACCESS'],
+                'workspace' => ['ROLE_USER_ACCESS'],
+                'distributor' => []
+            ]
+        )]
         #[Assert\NotBlank]
         #[Assert\Email]
         public readonly string $email = '',
+
+        #[AllowedRoles(
+            [
+                'admin' => ['ROLE_USER_ACCESS'],
+                'workspace' => ['ROLE_USER_ACCESS'],
+            ]
+        )]
         #[Assert\NotNull]
         public readonly ?DateTimeInterface $birthDate = null
-    ) {
-    }
+    ) {}
 }
