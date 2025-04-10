@@ -37,6 +37,29 @@ The application will be available at [http://localhost:8080](http://localhost:80
 
 A health check endpoint has been added at `/health`.
 
+5. Install API Platform
+
+```bash
+# Inside the Docker container
+composer require api-platform/core symfony/twig-bundle symfony/asset symfony/security-bundle nelmio/cors-bundle symfony/expression-language
+bin/console cache:clear
+bin/console assets:install public
+```
+
+API Platform is now installed with all necessary dependencies for the documentation UI.
+
+6. Create DTO Resources
+
+Created a UserDto class in `src/ApiResource` with a custom state provider in `src/State`:
+
+```bash
+# Create directories
+mkdir -p src/ApiResource
+mkdir -p src/State
+```
+
+The UserDto includes basic user information (id, username, email, birthDate) without database integration.
+
 ## Debugging
 
 The project is configured with Xdebug for debugging:
@@ -59,3 +82,28 @@ For VS Code users, debugging configuration is provided in the `.vscode` director
 - **PHP 8.4.5**: Latest stable version with Xdebug
 - **Nginx**: Web server
 - **Volumes**: Local development files are mounted into the containers
+
+## API Platform Configuration
+
+- **No Database**: Using custom state providers instead of Doctrine ORM
+- **DTO Approach**: Using Data Transfer Objects instead of entities
+- **Documentation**: Available at [http://localhost:8080/api](http://localhost:8080/api)
+- **Endpoints**:
+  - Collection: [http://localhost:8080/api/user_dtos](http://localhost:8080/api/user_dtos)
+  - Single item: [http://localhost:8080/api/user_dtos/1](http://localhost:8080/api/user_dtos/1)
+
+## Development Workflow
+
+1. Use the `machine.sh` script to start containers and connect to the PHP container:
+
+```bash
+./machine.sh
+```
+
+2. After making changes to API resources, clear cache if needed:
+
+```bash
+bin/console cache:clear
+```
+
+3. Only run `bin/console assets:install public` when installing new bundles with frontend assets
