@@ -33,6 +33,10 @@ docker compose up -d --build
 
 The application will be available at [http://localhost:8080](http://localhost:8080)
 
+4. Add Health Check
+
+A health check endpoint has been added at `/health`.
+
 ## Debugging
 
 The project is configured with Xdebug for debugging:
@@ -40,6 +44,15 @@ The project is configured with Xdebug for debugging:
 - IDE key: PHPSTORM
 - Host: localhost
 - Port: 9003
+
+### VS Code Setup
+
+For VS Code users, debugging configuration is provided in the `.vscode` directory:
+
+1. Install the PHP Debug extension by Felix Becker
+2. Set breakpoints in your code
+3. Start the Docker containers: `docker compose up -d`
+4. Start debugging by pressing F5 or using the Run and Debug panel
 
 ## Docker Configuration
 
