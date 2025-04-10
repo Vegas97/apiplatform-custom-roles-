@@ -123,14 +123,14 @@ class AllowedRoles
         }
 
         // Build the expected role name: ROLE_BFFNAME_ENTITYNAME_ACCESS
-        $expectedRole = 'ROLE_' . strtoupper($bffName) . '-' . strtoupper($entityName) . '_ACCESS';
+        $fullAccessRole = 'ROLE_' . strtoupper($bffName) . '-' . strtoupper($entityName) . '_ACCESS';
 
-        // Check if the expected role is in the required roles for this portal
-        if (!in_array($expectedRole, $requiredRoles, true)) {
+        // Check if the ACCESS role is in the required roles for this portal
+        if (!in_array('ACCESS', $requiredRoles, true)) {
             return false;
         }
 
-        // Check if the user has the expected role
-        return in_array($expectedRole, $userRoles, true);
+        // Check if the user has the FULL expected role ACCESS
+        return in_array($fullAccessRole, $userRoles, true);
     }
 }

@@ -44,6 +44,8 @@ class UserDto
     /**
      * Constructor for UserDto.
      *
+     * @example // prefix of all roles: ROLE_SYSTEMBFF-USERDTO_
+     * 
      * @param string            $id        User identifier
      * @param string            $username  Username
      * @param string            $email     Email address
@@ -53,9 +55,9 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
-                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
-                'distributor' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS']
+                'admin' => ['ACCESS'],
+                'workspace' => ['ACCESS'],
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -63,9 +65,9 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
-                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
-                'distributor' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS']
+                'admin' => ['ACCESS'],
+                'workspace' => ['ACCESS'],
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -74,8 +76,8 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
-                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'admin' => ['ACCESS'],
+                'workspace' => ['ACCESS'],
                 'distributor' => ['']
             ]
         )]
@@ -85,8 +87,8 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
-                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'admin' => ['ACCESS'],
+                'workspace' => ['ACCESS'],
             ]
         )]
         #[Assert\NotNull]

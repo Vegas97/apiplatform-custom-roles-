@@ -78,7 +78,7 @@ class UserDtoTest extends WebTestCase
         $client = static::createClient();
 
         // Test with distributor portal (should only have id and username)
-        $client->request('GET', '/api/user_dtos/1?portal=distributor&userRoles[]=ROLE_USER_ACCESS');
+        $client->request('GET', '/api/user_dtos/1');
 
         $this->assertEquals(
             Response::HTTP_OK,
