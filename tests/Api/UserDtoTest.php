@@ -12,6 +12,7 @@
 
 namespace App\Tests\Api;
 
+use Firebase\JWT\JWT;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -75,10 +76,27 @@ class UserDtoTest extends WebTestCase
         $this->assertEquals('test', $_SERVER['APP_ENV'], 'APP_ENV should be "test"');
         $this->assertEquals('SystemBFF', $_SERVER['APP_BFF_NAME'], 'APP_BFF_NAME should be "SystemBFF"');
 
+        // Create a JWT token with roles and portal information
+        $payload = [
+            'sub' => '1',  // Subject (user ID)
+            'roles' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+            'portal' => 'distributor',
+            'iat' => time(),  // Issued at time
+            'exp' => time() + 3600  // Expiration time (1 hour from now)
+        ];
+
+        $token = JWT::encode($payload, 'test_secret_key', 'HS256');
+
         $client = static::createClient();
 
-        // Test with distributor portal (should only have id and username)
-        $client->request('GET', '/api/user_dtos/1');
+        // Test with JWT token in Authorization header
+        $client->request(
+            'GET',
+            '/api/user_dtos/1',
+            [],
+            [],
+            ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]
+        );
 
         $this->assertEquals(
             Response::HTTP_OK,

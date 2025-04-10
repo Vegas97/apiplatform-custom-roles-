@@ -19,10 +19,13 @@ use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\ApiResource\UserDto;
 use App\Service\FieldAccessResolver;
+use App\Service\JwtService;
 use DateTime;
 use DateTimeImmutable;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use ReflectionClass;
 use ReflectionProperty;
 
@@ -59,20 +62,40 @@ class UserDtoProvider implements ProviderInterface
     private LoggerInterface $logger;
 
     /**
+     * JWT service.
+     *
+     * @var JwtService
+     */
+    private JwtService $_jwtService;
+    
+    /**
+     * Parameter bag for accessing configuration.
+     *
+     * @var ParameterBagInterface
+     */
+    private ParameterBagInterface $_parameterBag;
+
+    /**
      * Constructor.
      *
-     * @param FieldAccessResolver $fieldAccessResolver Field access resolver service
-     * @param RequestStack        $requestStack        Request stack service
-     * @param LoggerInterface     $logger              Logger service
+     * @param FieldAccessResolver   $fieldAccessResolver Field access resolver service
+     * @param RequestStack          $requestStack        Request stack service
+     * @param LoggerInterface       $logger              Logger service
+     * @param JwtService            $jwtService          JWT service
+     * @param ParameterBagInterface $parameterBag        Parameter bag for configuration
      */
     public function __construct(
         FieldAccessResolver $fieldAccessResolver,
         RequestStack $requestStack,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        JwtService $jwtService,
+        ParameterBagInterface $parameterBag
     ) {
         $this->fieldAccessResolver = $fieldAccessResolver;
         $this->requestStack = $requestStack;
         $this->logger = $logger;
+        $this->_jwtService = $jwtService;
+        $this->_parameterBag = $parameterBag;
     }
 
     /**
@@ -86,19 +109,32 @@ class UserDtoProvider implements ProviderInterface
      */
     public function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
     {
-        // Get the current portal from request
+        // Get the current request
         $request = $this->requestStack->getCurrentRequest();
-        // $portal = $request->query->get('portal', 'workspace');
-        // $userRoles = $request->query->get('userRoles', ['ROLE_USER_ACCESS']);
-
-        // testing purpose
-        $portal = 'distributor';
-        $userRoles = ['ROLE_SYSTEMBFF-USERDTO_ACCESS'];
-
-        // In a real app, you'd get user roles from security context
-        // For this example, we'll use a query parameter
-        if (!is_array($userRoles)) {
-            $userRoles = [$userRoles];
+        
+        // Get the Authorization header
+        $authHeader = $request->headers->get('Authorization');
+        
+        // Check if we're in test environment
+        $isTestEnv = $this->_parameterBag->get('kernel.environment') === 'test';
+        
+        try {
+            // Use the JwtService to extract authentication data (portal and roles)
+            // This handles both JWT tokens and query parameters for testing
+            $authData = $this->_jwtService->extractAuthData($authHeader, $request, $isTestEnv);
+            
+            $portal = $authData['portal'];
+            $userRoles = $authData['roles'];
+            
+            $this->logger->info('Authentication successful', [
+                'portal' => $portal,
+                'roles' => $userRoles
+            ]);
+        } catch (UnauthorizedHttpException $e) {
+            $this->logger->error('Authentication error', [
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
         }
 
         // Log the request parameters
