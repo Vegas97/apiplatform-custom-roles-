@@ -29,7 +29,7 @@ class UserDtoTest extends WebTestCase
     /**
      * Test that the UserDto collection endpoint returns a 200 response.
      *
-     * @example command: bin/phpunit --filter testGetCollection tests/Api/UserDtoTest.php
+     * @example command: APP_ENV=test bin/phpunit --filter testGetCollection tests/Api/UserDtoTest.php
      * 
      * @return void
      */
