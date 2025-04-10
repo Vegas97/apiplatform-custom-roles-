@@ -17,6 +17,7 @@ namespace App\Entity;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\Link;
+use App\Attribute\AllowedRoles;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
@@ -40,6 +41,13 @@ class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUn
      */
     #[ORM\Id, ORM\Column, ORM\GeneratedValue]
     #[ApiProperty(identifier: true)]
+    #[AllowedRoles(
+        [
+            'admin' => ['ROLE_BOOK_ACCESS'],
+            'workspace' => ['ROLE_BOOK_ACCESS'],
+            'distributor' => ['ROLE_BOOK_ACCESS']
+        ]
+    )]
     private ?int $id = null;
 
     /**
@@ -47,6 +55,13 @@ class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUn
      */
     #[ORM\Column(nullable: true)]
     #[Assert\Isbn]
+    #[AllowedRoles(
+        [
+            'admin' => ['ROLE_BOOK_ACCESS'],
+            'workspace' => ['ROLE_BOOK_ACCESS'],
+            'distributor' => ['ROLE_BOOK_ACCESS']
+        ]
+    )]
     public ?string $isbn = null;
 
     /**
@@ -54,6 +69,13 @@ class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUn
      */
     #[ORM\Column]
     #[Assert\NotBlank]
+    #[AllowedRoles(
+        [
+            'admin' => ['ROLE_BOOK_ACCESS'],
+            'workspace' => ['ROLE_BOOK_ACCESS'],
+            'distributor' => ['ROLE_BOOK_ACCESS']
+        ]
+    )]
     public string $title = '';
 
     /**
@@ -61,6 +83,13 @@ class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUn
      */
     #[ORM\Column(type: 'text')]
     #[Assert\NotBlank]
+    #[AllowedRoles(
+        [
+            'admin' => ['ROLE_BOOK_ACCESS'],
+            'workspace' => ['ROLE_BOOK_ACCESS'],
+            'distributor' => ['ROLE_BOOK_ACCESS']
+        ]
+    )]
     public string $description = '';
 
     /**
@@ -68,6 +97,13 @@ class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUn
      */
     #[ORM\Column]
     #[Assert\NotBlank]
+    #[AllowedRoles(
+        [
+            'admin' => ['ROLE_BOOK_ACCESS'],
+            'workspace' => ['ROLE_BOOK_ACCESS']
+            // No distributor access to this field
+        ]
+    )]
     public string $author = '';
 
     /**
@@ -75,6 +111,13 @@ class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUn
      */
     #[ORM\Column]
     #[Assert\NotNull]
+    #[AllowedRoles(
+        [
+            'admin' => ['ROLE_BOOK_ACCESS'],
+            'workspace' => ['ROLE_BOOK_ACCESS']
+            // No distributor access to this field
+        ]
+    )]
     public ?\DateTimeImmutable $publicationDate = null;
 
     /**
@@ -86,6 +129,12 @@ class Book // phpcs:disable PEAR.NamingConventions.ValidVariableName.PrivateNoUn
         targetEntity: Review::class,
         mappedBy: 'book',
         cascade: ['persist', 'remove']
+    )]
+    #[AllowedRoles(
+        [
+            'admin' => ['ROLE_BOOK_ACCESS']
+            // No workspace or distributor access to this field
+        ]
     )]
     public iterable $reviews;
 
