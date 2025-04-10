@@ -73,6 +73,7 @@ class UserDtoTest extends WebTestCase
     {
         // Debug the environment
         $this->assertEquals('test', $_SERVER['APP_ENV'], 'APP_ENV should be "test"');
+        $this->assertEquals('SystemBFF', $_SERVER['APP_BFF_NAME'], 'APP_BFF_NAME should be "SystemBFF"');
 
         $client = static::createClient();
 

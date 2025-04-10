@@ -93,7 +93,7 @@ class UserDtoProvider implements ProviderInterface
 
         // testing purpose
         $portal = 'distributor';
-        $userRoles = ['ROLE_USER_ACCESS'];
+        $userRoles = ['ROLE_SYSTEMBFF-USERDTO_ACCESS'];
 
         // In a real app, you'd get user roles from security context
         // For this example, we'll use a query parameter
@@ -157,7 +157,7 @@ class UserDtoProvider implements ProviderInterface
             ]);
             return null;
         }
-        
+
         // Create a new UserDto with only the accessible fields
         $filteredUser = new UserDto();
 

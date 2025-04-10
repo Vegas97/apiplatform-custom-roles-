@@ -15,6 +15,7 @@
 namespace App\Attribute;
 
 use Attribute;
+use LogicException;
 
 #[Attribute(Attribute::TARGET_PROPERTY)]
 /**
@@ -89,14 +90,28 @@ class AllowedRoles
      *
      * @param array<string> $userRoles  The roles of the current user
      * @param string        $portalName The portal name to check access for
+     * @param string|null   $entityName The name of the entity class (optional)
+     * @param string|null   $bffName    The name of the BFF (optional)
      *
      * @return bool True if access is granted, false otherwise
+     * @throws LogicException If BFF name or entity name is missing
      */
-    public function hasAccess(array $userRoles, string $portalName): bool
-    {
+    public function hasAccess(
+        array $userRoles,
+        string $portalName,
+        ?string $entityName = null,
+        ?string $bffName = null
+    ): bool {
         // If the portal isn't defined in our configuration, deny access
         if (!$this->hasPortal($portalName)) {
             return false;
+        }
+
+        // Check if BFF name and entity name are provided
+        if (!$bffName || !$entityName) {
+            throw new LogicException(
+                'Both BFF name and entity name must be provided for role-based access control'
+            );
         }
 
         // Get the required roles for this portal
@@ -107,13 +122,15 @@ class AllowedRoles
             return false;
         }
 
-        // Check if the user has any of the required roles
-        foreach ($requiredRoles as $role) {
-            if (in_array($role, $userRoles, true)) {
-                return true;
-            }
+        // Build the expected role name: ROLE_BFFNAME_ENTITYNAME_ACCESS
+        $expectedRole = 'ROLE_' . strtoupper($bffName) . '-' . strtoupper($entityName) . '_ACCESS';
+
+        // Check if the expected role is in the required roles for this portal
+        if (!in_array($expectedRole, $requiredRoles, true)) {
+            return false;
         }
 
-        return false;
+        // Check if the user has the expected role
+        return in_array($expectedRole, $userRoles, true);
     }
 }

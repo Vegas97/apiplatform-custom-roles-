@@ -18,6 +18,7 @@ use App\Attribute\AllowedRoles;
 use ReflectionClass;
 use ReflectionProperty;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 /**
  * Determines which fields are accessible based on portal and user roles.
@@ -38,13 +39,22 @@ class FieldAccessResolver
     private LoggerInterface $logger;
 
     /**
+     * Parameter bag for accessing environment variables.
+     *
+     * @var ParameterBagInterface
+     */
+    private ParameterBagInterface $parameterBag;
+
+    /**
      * Constructor.
      *
-     * @param LoggerInterface $logger Logger service
+     * @param LoggerInterface       $logger      Logger service
+     * @param ParameterBagInterface $parameterBag Parameter bag for accessing env vars
      */
-    public function __construct(LoggerInterface $logger)
+    public function __construct(LoggerInterface $logger, ParameterBagInterface $parameterBag)
     {
         $this->logger = $logger;
+        $this->parameterBag = $parameterBag;
     }
 
     /**
@@ -63,26 +73,30 @@ class FieldAccessResolver
 
         $accessibleFields = [];
 
-        // Check each property (field) for allowed roles
-        foreach ($properties as $property) {
-            $attributes = $property->getAttributes(AllowedRoles::class);
+        // Get BFF name from environment variable, default to null if not set
+        $bffName = $this->parameterBag->has('app.bff_name')
+            ? $this->parameterBag->get('app.bff_name')
+            : null;
 
-            if (empty($attributes)) {
+        // Extract the short class name
+        $parts = explode('\\', $className);
+        $shortClassName = end($parts);
+
+        foreach ($properties as $property) {
+            $allowedRolesAttribute = $property->getAttributes(AllowedRoles::class)[0];
+
+            if (empty($allowedRolesAttribute)) {
                 // If no AllowedRoles attribute, assume accessible
                 $accessibleFields[] = $property->getName();
                 continue;
             }
 
-            // Check each attribute for allowed roles, must be just 1 attribute
-            foreach ($attributes as $attribute) {
+            $allowedRoles = $allowedRolesAttribute->newInstance();
 
-                // get Maps of portal to roles
-                $allowedRoles = $attribute->newInstance();
-
-                if ($allowedRoles->hasAccess($userRoles, $portal)) {
-                    $accessibleFields[] = $property->getName();
-                    break;
-                }
+            // Pass the class name and BFF name to the hasAccess method for more specific role checking
+            if ($allowedRoles->hasAccess($userRoles, $portal, $shortClassName, $bffName)) {
+                $accessibleFields[] = $property->getName();
+                continue;
             }
         }
 
@@ -91,6 +105,7 @@ class FieldAccessResolver
             'class' => $className,
             'portal' => $portal,
             'userRoles' => $userRoles,
+            'bffName' => $bffName,
             'accessibleFields' => $accessibleFields
         ]);
 

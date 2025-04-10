@@ -53,9 +53,9 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_USER_ACCESS'],
-                'workspace' => ['ROLE_USER_ACCESS'],
-                'distributor' => ['ROLE_USER_ACCESS']
+                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'distributor' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -63,9 +63,9 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_USER_ACCESS'],
-                'workspace' => ['ROLE_USER_ACCESS'],
-                'distributor' => ['ROLE_USER_ACCESS']
+                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'distributor' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -74,8 +74,8 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_USER_ACCESS'],
-                'workspace' => ['ROLE_USER_ACCESS'],
+                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
                 'distributor' => ['']
             ]
         )]
@@ -85,8 +85,8 @@ class UserDto
 
         #[AllowedRoles(
             [
-                'admin' => ['ROLE_USER_ACCESS'],
-                'workspace' => ['ROLE_USER_ACCESS'],
+                'admin' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
+                'workspace' => ['ROLE_SYSTEMBFF-USERDTO_ACCESS'],
             ]
         )]
         #[Assert\NotNull]
