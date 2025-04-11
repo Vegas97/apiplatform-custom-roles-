@@ -123,8 +123,20 @@ abstract class AbstractDtoProvider implements ProviderInterface
             // This handles both JWT tokens and query parameters for testing
             $authData = $this->jwtService->extractAuthData($authHeader, $request, $isTestEnv);
             
-            $portal = $authData['portal'];
-            $userRoles = $authData['roles'];
+            // Dynamically extract portal and roles from the authentication data
+            $portal = $authData['portal'] ?? null;
+            $userRoles = $authData['roles'] ?? [];
+            
+            // Validate that we have the required authentication data
+            if (null === $portal) {
+                throw new UnauthorizedHttpException('Bearer', 'Missing portal information in authentication data');
+            }
+            
+            if (empty($userRoles)) {
+                $this->logger->warning('User has no roles assigned', [
+                    'portal' => $portal
+                ]);
+            }
             
             $this->logger->info('Authentication successful', [
                 'portal' => $portal,
