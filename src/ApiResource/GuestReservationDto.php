@@ -75,6 +75,7 @@ class GuestReservationDto
         )]
         #[Assert\NotBlank]
         public string $id = '',
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
@@ -96,11 +97,11 @@ class GuestReservationDto
         )]
         #[Assert\NotBlank]
         public string $reservationId = '',
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'distributor' => ['ACCESS']
             ]
         )]
         #[MicroserviceField(
@@ -111,11 +112,11 @@ class GuestReservationDto
         #[Assert\NotBlank]
         #[Assert\Length(min: 3)]
         public ?string $name = null,
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'distributor' => ['']
             ]
         )]
         #[MicroserviceField(
@@ -126,11 +127,11 @@ class GuestReservationDto
         #[Assert\NotNull]
         #[Assert\Email]
         public ?string $email = null,
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'distributor' => ['ACCESS']
             ]
         )]
         #[MicroserviceField(
@@ -140,6 +141,7 @@ class GuestReservationDto
         )]
         #[Assert\NotBlank]
         public ?string $nationality = null,
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
@@ -153,11 +155,11 @@ class GuestReservationDto
         )]
         #[Assert\NotNull]
         public ?DateTimeInterface $birthDate = null,
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'distributor' => ['ACCESS']
             ]
         )]
         #[MicroserviceField(
@@ -167,11 +169,11 @@ class GuestReservationDto
         )]
         #[Assert\NotNull]
         public ?DateTimeInterface $checkInDate = null,
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'distributor' => ['ACCESS']
             ]
         )]
         #[MicroserviceField(
@@ -181,6 +183,7 @@ class GuestReservationDto
         )]
         #[Assert\NotNull]
         public ?DateTimeInterface $checkOutDate = null,
+
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
@@ -194,6 +197,5 @@ class GuestReservationDto
         )]
         #[Assert\NotBlank]
         public ?string $roomNumber = null
-    ) {
-    }
+    ) {}
 }
