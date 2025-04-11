@@ -72,7 +72,7 @@ class UserDto
         )]
         #[Assert\NotBlank]
         #[Assert\Length(min: 3)]
-        public string $username = '',
+        public ?string $username = null,
 
         #[AllowedRoles(
             [

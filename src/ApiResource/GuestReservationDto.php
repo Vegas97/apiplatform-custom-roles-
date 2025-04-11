@@ -90,7 +90,7 @@ class GuestReservationDto
         )]
         #[Assert\NotBlank]
         #[Assert\Length(min: 3)]
-        public string $name = '',
+        public ?string $name = null,
 
         #[AllowedRoles(
             [
@@ -111,13 +111,13 @@ class GuestReservationDto
             ]
         )]
         #[Assert\NotBlank]
-        public string $nationality = '',
+        public ?string $nationality = null,
 
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'distributor' => ['ACCESS']
+
             ]
         )]
         #[Assert\NotNull]
@@ -147,10 +147,9 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
-        public string $roomNumber = ''
+        public ?string $roomNumber = null
     ) {}
 }
