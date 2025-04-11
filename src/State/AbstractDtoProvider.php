@@ -230,6 +230,18 @@ abstract class AbstractDtoProvider
         // Get entity mappings with accessible fields
         $entityMappings = $this->getEntityMappings($accessibleFields);
 
+        // Check if we need multiple entities but have no relationships defined
+        if (count($entityMappings) > 1) {
+            $relationshipFields = $this->getRelationshipFields();
+
+            // Validate entity relationships and optimize mappings
+            $entityMappings = $this->validateAndOptimizeEntityMappings(
+                $entityMappings,
+                $accessibleFields,
+                $relationshipFields
+            );
+        }
+
         // Fetch data from microservices if mappings are available, otherwise use sample data
         $items = !empty($entityMappings) ? $this->fetchFromMicroservices($entityMappings) : $this->getItems();
 
@@ -501,6 +513,329 @@ abstract class AbstractDtoProvider
      *
      * @return array Array of DTO objects
      */
+    /**
+     * Get relationship fields between entities.
+     *
+     * This method analyzes the DTO class to find relationship fields between entities
+     * by looking for MicroserviceRelationship attributes and fields that follow naming
+     * conventions like foreign keys ending with 'Id'.
+     *
+     * @return array Array of relationship field definitions
+     */
+    protected function getRelationshipFields(): array
+    {
+        $relationships = [];
+        $dtoClass = $this->getDtoClass();
+        $reflection = new ReflectionClass($dtoClass);
+        $properties = $reflection->getProperties();
+
+        // First look for explicit MicroserviceRelationship attributes
+        foreach ($properties as $property) {
+            $relationshipAttributes = $property->getAttributes(MicroserviceRelationship::class);
+
+            if (!empty($relationshipAttributes)) {
+                $relationship = $relationshipAttributes[0]->newInstance();
+                $fields = $relationship->getFields();
+
+                if (count($fields) >= 2) {
+                    // We have a relationship with at least two fields
+                    $sourceField = $fields[0]->getField();
+                    $targetField = $fields[1]->getField();
+                    $sourceEntity = $fields[0]->getEntity();
+                    $targetEntity = $fields[1]->getEntity();
+
+                    $relationships[] = [
+                        'sourceField' => $sourceField,
+                        'targetField' => $targetField,
+                        'sourceEntity' => $sourceEntity,
+                        'relatedEntity' => $targetEntity,
+                        'propertyName' => $property->getName()
+                    ];
+                }
+            }
+        }
+
+        // If no explicit relationships found, look for fields with naming conventions
+        if (empty($relationships)) {
+            // Map to track fields that could be foreign keys
+            $foreignKeyFields = [];
+            $entityFields = [];
+
+            // First pass: identify potential foreign keys and entity fields
+            foreach ($properties as $property) {
+                $microserviceFieldAttributes = $property->getAttributes(MicroserviceField::class);
+
+                if (empty($microserviceFieldAttributes)) {
+                    continue;
+                }
+
+                $microserviceField = $microserviceFieldAttributes[0]->newInstance();
+                $entity = $microserviceField->getEntity();
+                $field = $microserviceField->getField();
+
+                // Store all fields with their entities
+                $entityFields[$property->getName()] = [
+                    'entity' => $entity,
+                    'field' => $field
+                ];
+
+                // Check if this field ends with 'Id' - potential foreign key
+                if (substr($field, -2) === 'Id' || substr($property->getName(), -2) === 'Id') {
+                    $foreignKeyFields[$property->getName()] = [
+                        'entity' => $entity,
+                        'field' => $field
+                    ];
+                }
+            }
+
+            // Second pass: match foreign keys with their target entities
+            foreach ($foreignKeyFields as $propertyName => $foreignKeyInfo) {
+                $sourceEntity = $foreignKeyInfo['entity'];
+                $sourceField = $foreignKeyInfo['field'];
+
+                // Try to find the target entity by removing 'Id' from the field name
+                $baseFieldName = substr($propertyName, 0, -2);
+
+                // Look for a property that matches the base name
+                foreach ($entityFields as $targetPropertyName => $targetInfo) {
+                    // Skip if it's the same entity
+                    if ($targetInfo['entity'] === $sourceEntity) {
+                        continue;
+                    }
+
+                    // Check if the property name matches our base field name pattern
+                    if (
+                        $targetPropertyName === $baseFieldName ||
+                        strtolower($targetPropertyName) === strtolower($baseFieldName)
+                    ) {
+                        $relationships[] = [
+                            'sourceField' => $sourceField,
+                            'targetField' => 'id', // Assume the target field is 'id'
+                            'sourceEntity' => $sourceEntity,
+                            'relatedEntity' => $targetInfo['entity'],
+                            'propertyName' => $propertyName
+                        ];
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $relationships;
+    }
+
+    /**
+     * Merge data from multiple microservice sources.
+     *
+     * @param array $microserviceData   Data from multiple microservices
+     * @param array $relationshipFields Relationship field definitions
+     *
+     * @return array Merged data
+     */
+    protected function mergeDataFromMultipleSources(array $microserviceData, array $relationshipFields): array
+    {
+        // If we have explicit relationship fields, use them for merging
+        if (!empty($relationshipFields)) {
+            $primaryEntity = array_key_first($microserviceData);
+            $result = $microserviceData[$primaryEntity];
+
+            // Create a dependency graph of entities
+            $entityGraph = $this->buildEntityRelationshipGraph($relationshipFields);
+
+            // Track which entities have been merged already
+            $mergedEntities = [$primaryEntity => true];
+            $pendingEntities = $this->findRelatedEntities($primaryEntity, $entityGraph);
+
+            // Continue merging until we've processed all related entities
+            $iterationCount = 0;
+            $maxIterations = count($microserviceData) * 2; // Safety limit to prevent infinite loops
+
+            while (!empty($pendingEntities) && $iterationCount < $maxIterations) {
+                $iterationCount++;
+                $nextEntity = array_shift($pendingEntities);
+
+                // Skip if already merged or no data available
+                if (isset($mergedEntities[$nextEntity]) || !isset($microserviceData[$nextEntity])) {
+                    continue;
+                }
+
+                // Find relationships between already merged entities and this entity
+                $relationshipsToMerge = [];
+                foreach ($relationshipFields as $relationship) {
+                    $sourceEntity = $relationship['sourceEntity'];
+                    $relatedEntity = $relationship['relatedEntity'];
+
+                    // Check if this relationship connects our already merged entities with the next entity
+                    if ((isset($mergedEntities[$sourceEntity]) && $relatedEntity === $nextEntity) ||
+                        (isset($mergedEntities[$relatedEntity]) && $sourceEntity === $nextEntity)
+                    ) {
+                        $relationshipsToMerge[] = $relationship;
+                    }
+                }
+
+                // Merge this entity's data using the identified relationships
+                foreach ($relationshipsToMerge as $relationship) {
+                    $sourceEntity = $relationship['sourceEntity'];
+                    $relatedEntity = $relationship['relatedEntity'];
+                    $sourceField = $relationship['sourceField'];
+                    $targetField = $relationship['targetField'];
+
+                    // Determine which entity is already merged and which is being added
+                    if (isset($mergedEntities[$sourceEntity])) {
+                        $existingData = $result;
+                        $newEntityData = $microserviceData[$relatedEntity];
+                        $lookupField = $sourceField;
+                        $matchField = $targetField;
+                    } else {
+                        $existingData = $result;
+                        $newEntityData = $microserviceData[$sourceEntity];
+                        $lookupField = $targetField;
+                        $matchField = $sourceField;
+                    }
+
+                    // Create a lookup map for the new entity data
+                    $newEntityMap = [];
+                    foreach ($newEntityData as $item) {
+                        if (isset($item[$matchField])) {
+                            $newEntityMap[$item[$matchField]] = $item;
+                        }
+                    }
+
+                    // Merge the new entity data into the result
+                    foreach ($result as $key => $item) {
+                        if (isset($item[$lookupField]) && isset($newEntityMap[$item[$lookupField]])) {
+                            $relatedItem = $newEntityMap[$item[$lookupField]];
+                            foreach ($relatedItem as $field => $value) {
+                                // Avoid overwriting existing fields
+                                if (!isset($item[$field])) {
+                                    $result[$key][$field] = $value;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Mark this entity as merged
+                $mergedEntities[$nextEntity] = true;
+
+                // Add any new related entities to the pending list
+                $newRelatedEntities = $this->findRelatedEntities($nextEntity, $entityGraph);
+                foreach ($newRelatedEntities as $entity) {
+                    if (!isset($mergedEntities[$entity]) && !in_array($entity, $pendingEntities)) {
+                        $pendingEntities[] = $entity;
+                    }
+                }
+
+                $this->logger->debug(
+                    'Entity merge progress',
+                    [
+                        'iteration' => $iterationCount,
+                        'merged' => array_keys($mergedEntities),
+                        'pending' => $pendingEntities
+                    ]
+                );
+            }
+
+            if ($iterationCount >= $maxIterations) {
+                $this->logger->warning(
+                    'Reached maximum iterations when merging entities',
+                    [
+                        'mergedEntities' => array_keys($mergedEntities),
+                        'pendingEntities' => $pendingEntities
+                    ]
+                );
+            }
+
+            return $result;
+        }
+
+        // Fall back to the old merge keys approach if no relationship fields
+        $mergeKeys = $this->getMergeKeys();
+
+        if (!empty($mergeKeys) && count($mergeKeys) >= 2) {
+            // Get the first two entity names and their data
+            $entityNames = array_keys($microserviceData);
+            $entity1 = $entityNames[0];
+            $entity2 = $entityNames[1];
+
+            // Extract the key fields
+            $keyField1 = $mergeKeys[0];
+            $keyField2 = $mergeKeys[1];
+
+            // Merge the data
+            return $this->mergeData(
+                $microserviceData[$entity1],
+                $microserviceData[$entity2],
+                $keyField1,
+                $keyField2
+            );
+        } else {
+            $this->logger->error(
+                'No relationship fields or merge keys defined for merging data',
+                [
+                    'entities' => array_keys($microserviceData)
+                ]
+            );
+
+            // Return the primary data if we can't merge
+            return $microserviceData[array_key_first($microserviceData)] ?? [];
+        }
+    }
+
+    /**
+     * Build a graph of entity relationships.
+     *
+     * @param array $relationshipFields Array of relationship field definitions
+     *
+     * @return array Entity relationship graph
+     */
+    private function buildEntityRelationshipGraph(array $relationshipFields): array
+    {
+        $graph = [];
+
+        foreach ($relationshipFields as $relationship) {
+            $sourceEntity = $relationship['sourceEntity'];
+            $relatedEntity = $relationship['relatedEntity'];
+
+            // Add bidirectional relationship
+            if (!isset($graph[$sourceEntity])) {
+                $graph[$sourceEntity] = [];
+            }
+            if (!isset($graph[$relatedEntity])) {
+                $graph[$relatedEntity] = [];
+            }
+
+            if (!in_array($relatedEntity, $graph[$sourceEntity])) {
+                $graph[$sourceEntity][] = $relatedEntity;
+            }
+            if (!in_array($sourceEntity, $graph[$relatedEntity])) {
+                $graph[$relatedEntity][] = $sourceEntity;
+            }
+        }
+
+        return $graph;
+    }
+
+    /**
+     * Find all entities related to a given entity.
+     *
+     * @param string $entity Entity name
+     * @param array  $graph  Entity relationship graph
+     *
+     * @return array Related entity names
+     */
+    private function findRelatedEntities(string $entity, array $graph): array
+    {
+        return $graph[$entity] ?? [];
+    }
+
+    /**
+     * Fetch data from microservices based on entity mappings.
+     *
+     * @param array $entityMappings Array of EntityMappingDto objects
+     *
+     * @return array Array of DTO objects
+     */
     protected function fetchFromMicroservices(array $entityMappings): array
     {
         if (empty($entityMappings)) {
@@ -510,6 +845,7 @@ abstract class AbstractDtoProvider
         $dtoClass = $this->getDtoClass();
         $results = [];
         $microserviceData = [];
+        $relationshipFields = $this->getRelationshipFields();
 
         // Get the current request
         $request = $this->requestStack->getCurrentRequest();
@@ -522,79 +858,187 @@ abstract class AbstractDtoProvider
             }
         }
 
-        //TODO: this is not that good needs to be improved we need to figure it out later
-        // Get the ID from the request path if available
+        // Determine if this is a collection or item operation
+        $isItemOperation = false;
         $id = null;
         $pathInfo = $request->getPathInfo();
         $pathParts = explode('/', trim($pathInfo, '/'));
         $lastPart = end($pathParts);
 
-        // Check if the last part is a numeric ID
-        if (is_numeric($lastPart)) {
+        // Check if the last part is an ID (numeric or string)
+        if (!empty($lastPart) && $lastPart !== $pathParts[0]) {
+            // If the last part is not the same as the resource name, it's likely an ID
             $id = $lastPart;
+            $isItemOperation = true;
+            $this->logger->info('Detected item operation with ID: ' . $id);
         }
 
-        // Fetch data from each microservice
-        foreach ($entityMappings as $mapping) {
-            if (!$mapping instanceof EntityMappingDto) {
-                $this->logger->warning(
-                    'Invalid entity mapping',
-                    [
-                        'mapping' => get_class($mapping)
-                    ]
-                );
-                continue;
+        // Create a working copy of entity mappings to preserve the original for later use
+        $workingEntityMappings = $entityMappings;
+        
+        // Fetch data from primary microservice first
+        $primaryMapping = reset($workingEntityMappings);
+        $primaryKey = key($workingEntityMappings);
+        
+        if (!$primaryMapping instanceof EntityMappingDto) {
+            $this->logger->warning(
+                'Invalid primary entity mapping',
+                [
+                    'mapping' => get_class($primaryMapping)
+                ]
+            );
+            return [];
+        }
+
+        // Use either real or mock client based on configuration
+        $primaryData = $this->shouldUseRealData()
+            ? $this->microserviceClient->fetchEntityData($primaryMapping, $queryParameters, $id)
+            : $this->mockClient->fetchEntityData($primaryMapping, $queryParameters, $id);
+
+        // Store the data with the entity name as key
+        $microserviceData[$primaryMapping->entity] = $primaryData;
+        
+        // Remove the primary mapping from the working copy to avoid fetching it again
+        unset($workingEntityMappings[$primaryKey]);
+        
+        // Process remaining mappings based on whether we have relationship fields and primary data
+        if (!empty($relationshipFields) && !empty($primaryData) && !empty($workingEntityMappings)) {
+            // Process related entities using relationship fields
+            $this->logger->info('Processing related entities using relationship fields');
+            
+            // Create a map of entity names to their mappings for faster lookup
+            $entityMappingsByName = [];
+            foreach ($workingEntityMappings as $mapping) {
+                if ($mapping instanceof EntityMappingDto) {
+                    $entityMappingsByName[$mapping->entity] = $mapping;
+                }
             }
+            
+            // Process each relationship field
+            foreach ($relationshipFields as $relationField) {
+                $relatedEntityName = $relationField['relatedEntity'];
+                
+                // Skip if we don't have a mapping for this entity
+                if (!isset($entityMappingsByName[$relatedEntityName])) {
+                    $this->logger->warning(
+                        'No mapping found for related entity',
+                        [
+                            'relatedEntity' => $relatedEntityName,
+                            'availableEntities' => array_keys($entityMappingsByName)
+                        ]
+                    );
+                    continue;
+                }
+                
+                $relatedMapping = $entityMappingsByName[$relatedEntityName];
+                $sourceField = $relationField['sourceField'];
+                
+                // Extract IDs from primary data for the relationship field
+                $relatedIds = [];
+                foreach ($primaryData as $item) {
+                    if (isset($item[$sourceField]) && !empty($item[$sourceField])) {
+                        $relatedIds[] = $item[$sourceField];
+                    }
+                }
+                
+                // Skip if no related IDs found
+                if (empty($relatedIds)) {
+                    $this->logger->info(
+                        'No related IDs found for relationship',
+                        [
+                            'sourceField' => $sourceField,
+                            'relatedEntity' => $relatedEntityName,
+                            'primaryDataCount' => count($primaryData)
+                        ]
+                    );
+                    continue;
+                }
+                
+                // Add the IDs as a filter parameter
+                $relatedQueryParams = $queryParameters;
+                $relatedQueryParams['ids'] = implode(',', array_unique($relatedIds));
 
-            // Use either real or mock client based on configuration
-            $data = $this->shouldUseRealData()
-                ? $this->microserviceClient->fetchEntityData($mapping, $queryParameters, $id)
-                : $this->mockClient->fetchEntityData($mapping, $queryParameters, $id);
+                // Fetch related data
+                $relatedData = $this->shouldUseRealData()
+                    ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, null)
+                    : $this->mockClient->fetchEntityData($relatedMapping, $relatedQueryParams, null);
 
-            // Store the data with the entity name as key
-            $microserviceData[$mapping->entity] = $data;
+                // Store the data with the entity name as key
+                $microserviceData[$relatedMapping->entity] = $relatedData;
+                
+                // Remove this entity from the mappings as we've processed it
+                unset($entityMappingsByName[$relatedEntityName]);
+            }
+            
+            // Process any remaining entity mappings that weren't handled by relationships
+            foreach ($entityMappingsByName as $entityName => $mapping) {
+                $this->logger->info(
+                    'Processing remaining entity mapping not handled by relationships',
+                    ['entity' => $entityName]
+                );
+                
+                $data = $this->shouldUseRealData()
+                    ? $this->microserviceClient->fetchEntityData($mapping, $queryParameters, $id)
+                    : $this->mockClient->fetchEntityData($mapping, $queryParameters, $id);
+                
+                $microserviceData[$mapping->entity] = $data;
+            }
+        } else {
+            // Process remaining mappings without relationship context
+            if (!empty($workingEntityMappings)) {
+                $this->logger->info('Processing entity mappings without relationship context', [
+                    'hasPrimaryData' => !empty($primaryData),
+                    'hasRelationshipFields' => !empty($relationshipFields),
+                    'remainingMappings' => count($workingEntityMappings)
+                ]);
+                
+                foreach ($workingEntityMappings as $mapping) {
+                    if (!$mapping instanceof EntityMappingDto) {
+                        $this->logger->warning(
+                            'Invalid entity mapping',
+                            [
+                                'mapping' => get_class($mapping)
+                            ]
+                        );
+                        continue;
+                    }
+
+                    // Use either real or mock client based on configuration
+                    $data = $this->shouldUseRealData()
+                        ? $this->microserviceClient->fetchEntityData($mapping, $queryParameters, $id)
+                        : $this->mockClient->fetchEntityData($mapping, $queryParameters, $id);
+
+                    // Store the data with the entity name as key
+                    $microserviceData[$mapping->entity] = $data;
+                }
+            }
         }
 
         // If we have data from multiple microservices, merge them
         if (count($microserviceData) > 1) {
-            $mergeKeys = $this->getMergeKeys();
-
-            if (!empty($mergeKeys) && count($mergeKeys) >= 2) {
-                // Get the first two entity names and their data
-                $entityNames = array_keys($microserviceData);
-                $entity1 = $entityNames[0];
-                $entity2 = $entityNames[1];
-
-                // Extract the key fields
-                $keyField1 = $mergeKeys[0];
-                $keyField2 = $mergeKeys[1];
-
-                // Merge the data
-                $mergedData = $this->mergeData(
-                    $microserviceData[$entity1],
-                    $microserviceData[$entity2],
-                    $keyField1,
-                    $keyField2
-                );
-
-                // Convert merged data to DTOs
-                $results = $this->convertToDtos($mergedData, $dtoClass, $entityMappings);
-            } else {
-                $this->logger->error(
-                    'Merge keys not properly defined',
-                    [
-                        'mergeKeys' => $mergeKeys
-                    ]
-                );
-            }
+            $mergedData = $this->mergeDataFromMultipleSources($microserviceData, $relationshipFields);
+            // Convert merged data to DTOs - use original entityMappings for complete field mapping
+            $results = $this->convertToDtos($mergedData, $dtoClass, $entityMappings);
         } elseif (count($microserviceData) === 1) {
-            // If we only have data from one microservice, convert it directly
+            // If we only have data from one microservice, we still need to ensure proper structure
             $entityName = array_key_first($microserviceData);
             $data = $microserviceData[$entityName];
-
-            // Convert data to DTOs
+            
+            // Check if the data is already an array of items or a single item
+            if (!empty($data) && !isset($data[0]) && is_array($data)) {
+                // If it's a single item, wrap it in an array to match the expected format
+                $data = [$data];
+                $this->logger->info('Wrapped single item in array for DTO conversion');
+            }
+            
+            // Convert data to DTOs - use original entityMappings for complete field mapping
             $results = $this->convertToDtos($data, $dtoClass, $entityMappings);
         }
+        
+        $this->logger->info('Completed microservice data fetching and DTO conversion', [
+            'resultCount' => count($results),
+            'microserviceCount' => count($microserviceData)
+        ]);
 
         return $results;
     }
@@ -860,5 +1304,138 @@ abstract class AbstractDtoProvider
         }
 
         return $result;
+    }
+
+    /**
+     * Validates entity relationships and throws an error if multiple entities are required
+     * but no relationships are defined. Then optimizes entity mappings to only include
+     * entities that actually need to be fetched.
+     *
+     * @param array $entityMappings     The original entity mappings
+     * @param array $accessibleFields   The accessible fields for the current request
+     * @param array $relationshipFields The relationship fields between entities
+     * 
+     * @return array The validated and optimized entity mappings
+     * @throws \LogicException If multiple entities are required but no relationships are defined
+     */
+    protected function validateAndOptimizeEntityMappings(
+        array $entityMappings,
+        array $accessibleFields,
+        array $relationshipFields
+    ): array {
+        // Check if we actually need to fetch from all entities or just one
+        $requiredEntities = [];
+        foreach ($entityMappings as $mapping) {
+            $requiredEntities[$mapping->getEntity()] = true;
+        }
+
+        // If we need multiple entities but have no relationships, throw an error
+        if (count($requiredEntities) > 1 && empty($relationshipFields)) {
+            $this->logger->error(
+                'Multiple entities required but no relationships defined',
+                [
+                    'entities' => array_keys($requiredEntities),
+                    'dtoClass' => $this->getDtoClass()
+                ]
+            );
+
+            throw new \LogicException(
+                'Multiple entities required but no relationships defined. ' .
+                    'Please define relationships between ' . implode(', ', array_keys($requiredEntities))
+            );
+        }
+
+        // Optimize entity mappings to only include entities we actually need to fetch
+        return $this->optimizeEntityMappings($entityMappings, $accessibleFields, $relationshipFields);
+    }
+
+    /**
+     * Optimizes entity mappings to only include entities that actually need to be fetched.
+     * 
+     * This handles the case where we have fields from multiple entities in the DTO,
+     * but we don't actually need to fetch all of those entities. For example, if we have
+     * guest.id and guest.reservationId, we only need to fetch the guest entity, not the
+     * reservation entity.
+     *
+     * @param array $entityMappings     The original entity mappings
+     * @param array $accessibleFields   The accessible fields for the current request
+     * @param array $relationshipFields The relationship fields between entities
+     * 
+     * @return array The optimized entity mappings
+     */
+    protected function optimizeEntityMappings(
+        array $entityMappings,
+        array $accessibleFields,
+        array $relationshipFields
+    ): array {
+        if (empty($entityMappings) || count($entityMappings) <= 1) {
+            return $entityMappings;
+        }
+
+        // Map each entity to the fields it provides
+        $entityFields = [];
+        $fieldToEntity = [];
+
+        foreach ($entityMappings as $mapping) {
+            $entityName = $mapping->getEntity();
+            $entityFields[$entityName] = [];
+
+            // Get all fields from this entity
+            $reflectionClass = new \ReflectionClass($this->getDtoClass());
+            foreach ($reflectionClass->getProperties() as $property) {
+                foreach ($property->getAttributes(MicroserviceField::class) as $attribute) {
+                    $microserviceField = $attribute->newInstance();
+
+                    if ($microserviceField->getEntity() === $entityName) {
+                        $fieldName = $property->getName();
+                        $entityFields[$entityName][] = $fieldName;
+                        $fieldToEntity[$fieldName] = $entityName;
+                    }
+                }
+            }
+        }
+
+        // Get all fields that are actually being requested in this call
+        $requestedFields = [];
+        foreach ($accessibleFields as $field) {
+            $requestedFields[$field] = true;
+        }
+
+        // Check which entities are actually needed based on the requested fields
+        $requiredEntities = [];
+        foreach ($requestedFields as $field => $value) {
+            if (isset($fieldToEntity[$field])) {
+                $requiredEntities[$fieldToEntity[$field]] = true;
+            }
+        }
+
+        $this->logger->info(
+            'Required entities based on requested fields',
+            [
+                'requiredEntities' => array_keys($requiredEntities),
+                'requestedFields' => array_keys($requestedFields),
+                'hasRelationships' => !empty($relationshipFields)
+            ]
+        );
+
+        // If we only need one entity, optimize the mappings
+        if (count($requiredEntities) === 1) {
+            $requiredEntity = array_key_first($requiredEntities);
+
+            $this->logger->info(
+                'Optimizing entity mappings to a single entity',
+                [
+                    'requiredEntity' => $requiredEntity
+                ]
+            );
+
+            // Filter mappings to only include the required entity
+            return array_filter($entityMappings, function ($mapping) use ($requiredEntity) {
+                return $mapping->getEntity() === $requiredEntity;
+            });
+        }
+
+        // If we need multiple entities, return all mappings to ensure we have all the data we need
+        return $entityMappings;
     }
 }

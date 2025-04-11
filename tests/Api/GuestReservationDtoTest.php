@@ -91,6 +91,7 @@ class GuestReservationDtoTest extends WebTestCase
             'sub' => '1',  // Subject (user ID)
             'roles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
             'portal' => 'distributor',
+            // 'portal' => 'selfcheckin',
             'iat' => time(),  // Issued at time
             'exp' => time() + 3600  // Expiration time (1 hour from now)
         ];
@@ -124,6 +125,8 @@ class GuestReservationDtoTest extends WebTestCase
         $this->assertJson($responseContent, 'Response should be valid JSON');
 
         $jsonResponse = json_decode($responseContent, true);
+
+        dd($jsonResponse);
 
         // Assert that fields accessible to distributor portal are present
         $this->assertArrayHasKey('id', $jsonResponse, 'Response should have id field');
