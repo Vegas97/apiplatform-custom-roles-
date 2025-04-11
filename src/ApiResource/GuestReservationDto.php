@@ -65,7 +65,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -75,7 +75,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -85,7 +85,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -96,7 +96,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['']
+                'distributor' => ['']
             ]
         )]
         #[Assert\NotNull]
@@ -107,7 +107,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
@@ -117,7 +117,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotNull]
@@ -127,7 +127,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotNull]
@@ -137,7 +137,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotNull]
@@ -147,7 +147,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'workspace' => ['ACCESS'],
-                'hotel' => ['ACCESS']
+                'distributor' => ['ACCESS']
             ]
         )]
         #[Assert\NotBlank]
