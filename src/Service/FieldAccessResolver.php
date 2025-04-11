@@ -86,7 +86,7 @@ class FieldAccessResolver
             $allowedRolesAttribute = $property->getAttributes(AllowedRoles::class)[0];
 
             if (empty($allowedRolesAttribute)) {
-                // If no AllowedRoles attribute, assume accessible
+                // If no AllowedRoles attribute, assume accessible // TODO: not sure about this
                 $accessibleFields[] = $property->getName();
                 continue;
             }

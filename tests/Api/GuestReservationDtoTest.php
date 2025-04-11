@@ -77,6 +77,14 @@ class GuestReservationDtoTest extends WebTestCase
         // Debug the environment
         $this->assertEquals('test', $_SERVER['APP_ENV'], 'APP_ENV should be "test"');
         $this->assertEquals('SystemBFF', $_SERVER['APP_BFF_NAME'], 'APP_BFF_NAME should be "SystemBFF"');
+        $this->assertEquals(true, $_SERVER['APP_USE_MOCK_DATA'], 'APP_USE_MOCK_DATA should be true');
+
+        // Debug the environment variable
+        dump('------------------------------');
+        dump($_SERVER['APP_ENV']);
+        dump($_SERVER['APP_BFF_NAME']);
+        dump($_SERVER['APP_USE_MOCK_DATA']);
+        dump('------------------------------');
 
         // Create a JWT token with roles and portal information
         $payload = [
@@ -94,7 +102,7 @@ class GuestReservationDtoTest extends WebTestCase
         // Test with JWT token in Authorization header
         $client->request(
             'GET',
-            '/api/guest_reservation_dtos/1',
+            '/api/guest_reservation_dtos/G001',
             [],
             [],
             ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]

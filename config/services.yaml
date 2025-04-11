@@ -6,6 +6,7 @@
 parameters:
   app.bff_name: "%env(APP_BFF_NAME)%"
   app.jwt_secret: "%env(APP_JWT_SECRET)%"
+  app.use_mock_data: "%env(APP_USE_MOCK_DATA)%"
 
 services:
   # default configuration for services in *this* file
@@ -21,6 +22,7 @@ services:
       - "../src/DependencyInjection/"
       - "../src/Entity/"
       - "../src/Kernel.php"
+      - "../src/State/AbstractDtoProvider.php"
 
   # add more service definitions when explicit configuration is needed
   # please note that last definitions always *replace* previous ones
@@ -31,12 +33,37 @@ services:
       $logger: "@logger"
       $parameterBag: '@Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface'
 
-  # User DTO Provider with role-based access control
-  App\State\UserDtoProvider:
+  # Microservice Client service
+  App\Service\MicroserviceClient:
+    arguments:
+      $httpClient: '@Symfony\Contracts\HttpClient\HttpClientInterface'
+      $logger: "@logger"
+      $parameterBag: '@Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface'
+
+  # Mock Microservice Client service for testing
+  App\Service\MockMicroserviceClient:
+    arguments:
+      $logger: "@logger"
+      $parameterBag: '@Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface'
+
+  # Abstract DTO Provider with role-based access control
+  App\State\AbstractDtoProvider:
+    abstract: true
     arguments:
       $fieldAccessResolver: '@App\Service\FieldAccessResolver'
       $requestStack: "@request_stack"
       $logger: "@logger"
       $jwtService: '@App\Service\JwtService'
       $parameterBag: '@Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface'
+      $microserviceClient: '@App\Service\MicroserviceClient'
+      $mockClient: '@App\Service\MockMicroserviceClient'
+
+  # User DTO Provider with role-based access control
+  App\State\UserDtoProvider:
+    parent: App\State\AbstractDtoProvider
+    tags: ["api_platform.state_provider"]
+
+  # Guest Reservation DTO Provider with role-based access control
+  App\State\GuestReservationDtoProvider:
+    parent: App\State\AbstractDtoProvider
     tags: ["api_platform.state_provider"]

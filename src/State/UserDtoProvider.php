@@ -15,6 +15,8 @@ declare(strict_types=1);
 
 namespace App\State;
 
+use ApiPlatform\Metadata\Operation;
+use ApiPlatform\State\ProviderInterface;
 use App\ApiResource\UserDto;
 use DateTime;
 
@@ -27,8 +29,22 @@ use DateTime;
  * @license  MIT License
  * @link     https://apiplatform.com
  */
-class UserDtoProvider extends AbstractDtoProvider
+class UserDtoProvider extends AbstractDtoProvider implements ProviderInterface
 {
+
+    /**
+     * Provides the data for the API resource.
+     *
+     * @param Operation $operation    The operation
+     * @param array     $uriVariables The URI variables
+     * @param array     $context      The context
+     *
+     * @return object|array|null The data
+     */
+    public function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
+    {
+        return parent::provide($operation, $uriVariables, $context);
+    }
 
     /**
      * Get the DTO class name.
