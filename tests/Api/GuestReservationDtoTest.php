@@ -95,6 +95,8 @@ class GuestReservationDtoTest extends WebTestCase
 
         $userRoles = ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'];
         $portal = 'workspace'; // distributor, workspace, admin, selfcheckin
+        $method = 'GET';
+        $url = '/api/guest_reservation_dtos';
 
         // Debug the environment
         $this->assertEquals('test', $_SERVER['APP_ENV'], 'APP_ENV should be "test"');
@@ -136,8 +138,8 @@ class GuestReservationDtoTest extends WebTestCase
 
         // Test with JWT token in Authorization header - using collection endpoint
         $client->request(
-            'GET',
-            '/api/guest_reservation_dtos',  // Use collection endpoint
+            $method,
+            $url,  // Use collection endpoint
             [],
             [],
             ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]
