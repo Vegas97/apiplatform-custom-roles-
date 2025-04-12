@@ -508,7 +508,6 @@ abstract class AbstractDtoProvider
 
             dump('------------------------------------------------');
             dump($microservice, $entity, $entityFields, $context);
-            dump('------------------------------------------------');
 
             $entityMappings[] = new EntityMappingDto(
                 $microservice,

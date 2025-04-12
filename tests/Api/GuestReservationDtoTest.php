@@ -105,12 +105,13 @@ class GuestReservationDtoTest extends WebTestCase
 
         // Debug the environment variable
         dump('------------------------------');
+        dump($this->getName());
         dump($_SERVER['APP_ENV']);
         dump($_SERVER['APP_BFF_NAME']);
         dump($_SERVER['APP_USE_MOCK_DATA']);
         dump($userRoles);
         dump($portal);
-        dump('------------------------------');
+
 
         // Create a client first before accessing the container
         $client = static::createClient();
