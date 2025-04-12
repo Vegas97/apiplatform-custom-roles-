@@ -997,7 +997,19 @@ abstract class AbstractDtoProvider
 
                 // Extract IDs from primary data for the relationship field
                 $relatedIds = [];
-                foreach ($primaryData as $item) {
+                $dataToProcess = $primaryData;
+
+                // Check if this is a hydra collection format
+                if ($isCollectionOperation && isset($primaryData['hydra:member']) && is_array($primaryData['hydra:member'])) {
+                    $this->logger->info('Processing hydra:member from collection data for relationship extraction', [
+                        'memberCount' => count($primaryData['hydra:member'])
+                    ]);
+                    $dataToProcess = $primaryData['hydra:member'];
+                } else {
+                    $dataToProcess = [$primaryData];
+                }
+
+                foreach ($dataToProcess as $item) {
                     if (isset($item[$sourceField]) && !empty($item[$sourceField])) {
                         $relatedIds[] = $item[$sourceField];
                     }
