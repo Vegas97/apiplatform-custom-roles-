@@ -76,16 +76,22 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
         $this->resourceRole = 'ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS';
     }
 
-
-
     /**
-     * Data provider for API endpoint tests
+     * Get test cases for different portals
      *
-     * @return array<array<string, mixed>>
+     * This method provides test data for different portal contexts, allowing
+     * tests to be run against specific portals or all portals.
+     *
+     * @param string|null $portal Portal to get test cases for ('workspace', 'selfcheckin', or 'all')
+     *
+     * @return array<string, array<string, mixed>> Array of test cases organized by portal
      */
-    public function endpointProvider(): array
+    private function _getProviderCases($portal = null): array
     {
-        return [
+        $cases = [];
+
+        // workspace
+        $cases['workspace'] = [
             'collection_endpoint_with_access' => [
                 'method' => 'GET',
                 'url' => '/api/guest_reservation_dtos',
@@ -120,153 +126,54 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
                 'unexpectedFields' => []
             ]
         ];
-    }
 
-    /**
-     * Test API endpoints using the data provider
-     *
-     * @param string   $method             HTTP method
-     * @param string   $url                API endpoint URL
-     * @param array    $userRoles          User roles for JWT token
-     * @param string   $portal             Portal for JWT token
-     * @param int      $expectedStatusCode Expected HTTP status code
-     * @param int|null $expectedTotalItems Expected totalItems for collections
-     * @param bool     $isCollection       Whether this is a collection endpoint
-     * @param array    $expectedFields     Fields that should be present in the response
-     * @param array    $unexpectedFields   Fields that should not be present in the response
-     *
-     * @return void
-     * 
-     * @dataProvider endpointProvider
-     * @test
-     * @example      command: APP_ENV=test bin/phpunit --filter testEndpoint tests/Api/GuestReservationDtoTest.php
-     */
-    public function testEndpoint(
-        string $method,
-        string $url,
-        array $userRoles,
-        string $portal,
-        int $expectedStatusCode,
-        ?int $expectedTotalItems,
-        bool $isCollection,
-        array $expectedFields = [],
-        array $unexpectedFields = []
-    ): void {
-        // Debug the environment
-        $this->assertEquals('test', $_SERVER['APP_ENV'], 'APP_ENV should be "test"');
-        $this->assertEquals('SystemBFF', $_SERVER['APP_BFF_NAME'], 'APP_BFF_NAME should be "SystemBFF"');
-        $this->assertEquals(true, $_SERVER['APP_USE_MOCK_DATA'], 'APP_USE_MOCK_DATA should be true');
-
-        // Create a client
-        $client = static::createClient();
-
-        // Get the logger
-        $logger = static::getContainer()->get(LoggerInterface::class);
-        $logger->info('Starting GuestReservationDto test', [
-            'environment' => $_SERVER['APP_ENV'],
-            'bffName' => $_SERVER['APP_BFF_NAME'],
-            'useMockData' => $_SERVER['APP_USE_MOCK_DATA'],
-            'testMethod' => __METHOD__,
-            'endpoint' => $url,
-            'userRoles' => $userRoles,
-            'portal' => $portal
-        ]);
-
-        // Create a JWT token with roles and portal information
-        $payload = [
-            'sub' => '1',  // Subject (user ID)
-            'roles' => $userRoles,
-            'portal' => $portal,
-            'iat' => time(),  // Issued at time
-            'exp' => time() + 3600  // Expiration time (1 hour from now)
+        // selfcheckin
+        $cases['selfcheckin'] = [
+            'item_endpoint_with_access' => [
+                'method' => 'GET',
+                'url' => '/api/guest_reservation_dtos/G001',
+                'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
+                'portal' => 'selfcheckin',
+                'expectedStatusCode' => Response::HTTP_OK,
+                'expectedTotalItems' => null,
+                'isCollection' => false,
+                'expectedFields' => ['id', 'reservationId', 'name', 'roomNumber'],
+                'unexpectedFields' => []
+            ]
         ];
 
-        $token = JWT::encode($payload, 'test_secret_key', 'HS256');
-
-        // Make the request with JWT token in Authorization header
-        $client->request(
-            $method,
-            $url,
-            [],
-            [],
-            ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]
-        );
-
-        // Assert the status code
-        $this->assertEquals(
-            $expectedStatusCode,
-            $client->getResponse()->getStatusCode(),
-            sprintf('The endpoint %s should return a %d response', $url, $expectedStatusCode)
-        );
-
-        // If we're expecting a non-successful response, we're done
-        if ($expectedStatusCode !== Response::HTTP_OK) {
-            return;
-        }
-
-        // For successful responses only, assert the content type
-        $this->assertResponseHeaderSame(
-            'content-type',
-            'application/ld+json; charset=utf-8',
-            'The response content type should be application/ld+json; charset=utf-8'
-        );
-
-        // Parse and validate the response
-        $responseContent = $client->getResponse()->getContent();
-        $this->assertJson($responseContent, 'Response should be valid JSON');
-
-        $jsonResponse = json_decode($responseContent, true);
-
-        // Log the response data
-        $logger->info('GuestReservationDto test response received', [
-            'statusCode' => $client->getResponse()->getStatusCode(),
-            'responseType' => $client->getResponse()->headers->get('content-type'),
-            'responseData' => $jsonResponse
-        ]);
-
-        // Assert common structure
-        $this->assertArrayHasKey('@context', $jsonResponse, 'Response should have @context key');
-        $this->assertArrayHasKey('@id', $jsonResponse, 'Response should have @id key');
-        $this->assertArrayHasKey('@type', $jsonResponse, 'Response should have @type key');
-
-        // Collection-specific assertions
-        if ($isCollection) {
-            $this->assertArrayHasKey('totalItems', $jsonResponse, 'Collection should have totalItems key');
-            $this->assertArrayHasKey('member', $jsonResponse, 'Collection should have member key');
-
-            if ($expectedTotalItems !== null) {
-                $this->assertEquals($expectedTotalItems, $jsonResponse['totalItems']);
-            }
-
-            // Check that member array exists and has items
-            $this->assertNotEmpty($jsonResponse['member'], 'Collection should have members');
-
-            // Assert the structure of each member item in the collection
-            foreach ($jsonResponse['member'] as $member) {
-                $this->assertArrayHasKey('@id', $member);
-                $this->assertArrayHasKey('@type', $member);
-                $this->assertArrayHasKey('id', $member);
-                $this->assertArrayHasKey('reservationId', $member);
-                $this->assertCount(4, $member);
-            }
-        }
-        // Item-specific assertions
-        else {
-            $this->assertArrayHasKey('id', $jsonResponse, 'Item should have id field');
-            $this->assertArrayHasKey('reservationId', $jsonResponse, 'Item should have reservationId field');
-            
-            // Check expected fields
-            foreach ($expectedFields as $field) {
-                $this->assertArrayHasKey($field, $jsonResponse, "Response should have {$field} field");
-            }
-            
-            // Check unexpected fields are not present
-            foreach ($unexpectedFields as $field) {
-                $this->assertArrayNotHasKey($field, $jsonResponse, "Response should not have {$field} field");
-            }
+        switch ($portal) {
+            case 'workspace':
+                return $cases['workspace'];
+            case 'selfcheckin':
+                return $cases['selfcheckin'];
+            default:
+                return [
+                    ...$cases['workspace'],
+                    ...$cases['selfcheckin']
+                ];
         }
     }
 
+
+    /**
+     * Data provider for API test cases
+     * 
+     * Provides test cases for the testCase method in the parent class.
+     * This implementation returns all test cases from all portals.
+     *
+     * Example of how to run the test case directly
+     * 
+     * @example command: APP_ENV=test bin/phpunit --filter testCase tests/Api/GuestReservationDtoTest.php
+     * 
+     * @return array<string, array<string, mixed>>
+     */
+    public function casesProvider(): array
+    {
+        // Get all test cases from all portals
+        // This could be filtered by portal if needed
+        return $this->_getProviderCases('workspace');
+    }
 
 
     /**

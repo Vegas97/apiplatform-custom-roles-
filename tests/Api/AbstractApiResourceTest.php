@@ -268,17 +268,17 @@ abstract class AbstractApiResourceTest extends WebTestCase
     }
 
     /**
-     * Data provider for API endpoint tests
+     * Data provider for API test cases
      *
      * This method should be implemented by child classes to provide test cases
      * for different endpoints, roles, portals, etc.
      *
      * @return array<array<string, mixed>>
      */
-    abstract public function endpointProvider(): array;
+    abstract public function casesProvider(): array;
 
     /**
-     * Test an API endpoint using data from the provider
+     * Test an API resource case using data from the provider
      *
      * @param string   $method           HTTP method
      * @param string   $url              API endpoint URL
@@ -290,9 +290,11 @@ abstract class AbstractApiResourceTest extends WebTestCase
      * @param array    $expectedFields   Fields that should be present
      * @param array    $unexpectedFields Fields that should not be present
      * 
+     * @dataProvider casesProvider
+     * @test
      * @return void
      */
-    public function testEndpoint(
+    public function testCase(
         string $method,
         string $url,
         array $userRoles,
@@ -300,7 +302,8 @@ abstract class AbstractApiResourceTest extends WebTestCase
         int $expectedStatus,
         ?int $expectedItems,
         bool $isCollection,
-        array $expectedFields = []
+        array $expectedFields = [],
+        array $unexpectedFields = []
     ): void {
         // Debug the environment
         $this->assertEquals('test', $_SERVER['APP_ENV'], 'APP_ENV should be "test"');
