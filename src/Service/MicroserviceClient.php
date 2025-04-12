@@ -129,41 +129,65 @@ class MicroserviceClient
             $options['json'] = $body;
         }
 
+        // Generate a unique request ID for tracking this request through logs
+        $requestId = uniqid('req_', true);
+        
         $this->logger->info('Making request to microservice', [
+            'requestId' => $requestId,
             'microservice' => $microservice,
             'url' => $url,
             'method' => $method,
             'context' => $context,
-            'params' => $params
+            'params' => $params,
+            'endpoint' => $endpoint,
+            'hasId' => $id !== null
         ]);
 
+        $startTime = microtime(true);
+        
         try {
             $response = $this->httpClient->request($method, $url, $options);
             $statusCode = $response->getStatusCode();
+            $duration = microtime(true) - $startTime;
 
             if ($statusCode >= 200 && $statusCode < 300) {
                 $data = $response->toArray();
+                $dataCount = is_array($data) ? count($data) : 'not an array';
 
                 $this->logger->info('Successful response from microservice', [
+                    'requestId' => $requestId,
                     'microservice' => $microservice,
-                    'statusCode' => $statusCode
+                    'statusCode' => $statusCode,
+                    'duration' => round($duration * 1000, 2) . 'ms',
+                    'dataCount' => $dataCount,
+                    'endpoint' => $endpoint
                 ]);
 
                 return $data;
             }
 
             $this->logger->error('Error response from microservice', [
+                'requestId' => $requestId,
                 'microservice' => $microservice,
                 'statusCode' => $statusCode,
-                'content' => $response->getContent(false)
+                'duration' => round($duration * 1000, 2) . 'ms',
+                'content' => $response->getContent(false),
+                'endpoint' => $endpoint,
+                'url' => $url
             ]);
 
             return [];
         } catch (ExceptionInterface $e) {
+            $duration = microtime(true) - $startTime;
             $this->logger->error('Exception when calling microservice', [
+                'requestId' => $requestId,
                 'microservice' => $microservice,
                 'url' => $url,
-                'error' => $e->getMessage()
+                'duration' => round($duration * 1000, 2) . 'ms',
+                'error' => $e->getMessage(),
+                'errorClass' => get_class($e),
+                'endpoint' => $endpoint,
+                'trace' => $e->getTraceAsString()
             ]);
 
             return [];
@@ -220,8 +244,25 @@ class MicroserviceClient
         $endpoint = $entityMapping->endpoint;
         $context = $entityMapping->context;
 
+        // Log entity data request details
+        $this->logger->debug('Preparing entity data request', [
+            'microservice' => $microservice,
+            'entity' => $entity,
+            'endpoint' => $endpoint,
+            'context' => $context,
+            'hasId' => $id !== null,
+            'id' => $id,
+            'queryParametersCount' => count($queryParameters),
+            'fieldMappingsCount' => count($entityMapping->fieldMappings ?? [])
+        ]);
+
         // Verify that the endpoint is defined
         if ($endpoint === null) {
+            $this->logger->error('Missing endpoint configuration', [
+                'microservice' => $microservice,
+                'entity' => $entity
+            ]);
+            
             throw new RuntimeException(
                 sprintf(
                     'Missing endpoint configuration for entity "%s" in microservice "%s"',
@@ -232,7 +273,7 @@ class MicroserviceClient
         }
 
         // Make the request using the standard fetch method
-        return $this->fetch(
+        $result = $this->fetch(
             $microservice,
             $endpoint,
             $context,
@@ -242,5 +283,16 @@ class MicroserviceClient
             [],
             $id
         );
+        
+        // Log the result summary
+        $this->logger->debug('Entity data request completed', [
+            'microservice' => $microservice,
+            'entity' => $entity,
+            'resultCount' => is_array($result) ? count($result) : 'not an array',
+            'hasId' => $id !== null,
+            'id' => $id
+        ]);
+        
+        return $result;
     }
 }
