@@ -103,7 +103,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS'],
                 'distributor' => ['ACCESS'],
             ]
         )]
@@ -119,7 +118,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS'],
             ]
         )]
         #[MicroserviceField(
@@ -134,7 +132,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS'],
             ]
         )]
         #[MicroserviceField(
@@ -148,7 +145,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS']
             ]
         )]
         #[MicroserviceField(
@@ -162,7 +158,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS'],
             ]
         )]
         #[MicroserviceField(
@@ -176,7 +171,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS'],
             ]
         )]
         #[MicroserviceField(
@@ -190,7 +184,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS'],
                 'distributor' => [''],
                 'selfcheckin' => ['ACCESS']
             ]
