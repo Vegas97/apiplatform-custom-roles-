@@ -171,8 +171,8 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
     public function casesProvider(): array
     {
         // Get all test cases from all portals
-        // This could be filtered by portal if needed
-        return $this->_getProviderCases('workspace');
+        // This could be filtered by portal if needed // admin, workspace, selfcheckin, distributor
+        return $this->_getProviderCases('selfcheckin');
     }
 
 
