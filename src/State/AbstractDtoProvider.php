@@ -767,35 +767,6 @@ abstract class AbstractDtoProvider
 
         // Fall back to the old merge keys approach if no relationship fields
         $mergeKeys = $this->getMergeKeys();
-
-        if (!empty($mergeKeys) && count($mergeKeys) >= 2) {
-            // Get the first two entity names and their data
-            $entityNames = array_keys($microserviceData);
-            $entity1 = $entityNames[0];
-            $entity2 = $entityNames[1];
-
-            // Extract the key fields
-            $keyField1 = $mergeKeys[0];
-            $keyField2 = $mergeKeys[1];
-
-            // Merge the data
-            return $this->mergeData(
-                $microserviceData[$entity1],
-                $microserviceData[$entity2],
-                $keyField1,
-                $keyField2
-            );
-        } else {
-            $this->logger->error(
-                'No relationship fields or merge keys defined for merging data',
-                [
-                    'entities' => array_keys($microserviceData)
-                ]
-            );
-
-            // Return the primary data if we can't merge
-            return $microserviceData[array_key_first($microserviceData)] ?? [];
-        }
     }
 
     /**
@@ -1028,14 +999,67 @@ abstract class AbstractDtoProvider
                     continue;
                 }
 
-                // Add the IDs as a filter parameter
+                // Handle differently based on whether this is a collection or single item operation
                 $relatedQueryParams = $queryParameters;
-                $relatedQueryParams['ids'] = implode(',', array_unique($relatedIds));
-
-                // Fetch related data
-                $relatedData = $this->shouldUseRealData()
-                    ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, null)
-                    : $this->mockClient->fetchEntityData($relatedMapping, $relatedQueryParams, null);
+                
+                if ($isItemOperation) {
+                    // For single item operations, get the source ID from the relationship field
+                    // and search for it in the current data
+                    $sourceField = $relationField['sourceField'];
+                    $sourceId = null;
+                    
+                    // Get the current data item (should be a single item for item operations)
+                    $currentDataItem = null;
+                    if (isset($primaryData[0])) {
+                        $currentDataItem = $primaryData[0];
+                    } elseif (is_array($primaryData) && !isset($primaryData['hydra:member'])) {
+                        $currentDataItem = $primaryData;
+                    }
+                    
+                    // Extract the source ID from the current data item
+                    if ($currentDataItem && isset($currentDataItem[$sourceField])) {
+                        $sourceId = $currentDataItem[$sourceField];
+                        $this->logger->info(
+                            'Found source ID in current data',
+                            [
+                                'entity' => $relatedMapping->entity,
+                                'sourceField' => $sourceField,
+                                'sourceId' => $sourceId
+                            ]
+                        );
+                    } else {
+                        $this->logger->warning(
+                            'Could not find source ID in current data',
+                            [
+                                'entity' => $relatedMapping->entity,
+                                'sourceField' => $sourceField,
+                                'currentDataKeys' => $currentDataItem ? array_keys($currentDataItem) : 'null'
+                            ]
+                        );
+                        // Fall back to the first related ID if we can't find the source ID
+                        $sourceId = reset($relatedIds);
+                    }
+                    
+                    // Directly fetch the single item using the source ID
+                    $relatedData = $this->shouldUseRealData()
+                        ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, $sourceId)
+                        : $this->mockClient->fetchEntityData($relatedMapping, $relatedQueryParams, $sourceId);
+                } else {
+                    // For collection operations, use the ids parameter
+                    $relatedQueryParams['ids'] = implode(',', array_unique($relatedIds));
+                    $this->logger->info(
+                        'Fetching collection of related items',
+                        [
+                            'entity' => $relatedMapping->entity,
+                            'idCount' => count(array_unique($relatedIds))
+                        ]
+                    );
+                    
+                    // Fetch the collection of items using the ids parameter
+                    $relatedData = $this->shouldUseRealData()
+                        ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, null)
+                        : $this->mockClient->fetchEntityData($relatedMapping, $relatedQueryParams, null);
+                }
 
                 // Store the data with the entity name as key
                 $microserviceData[$relatedMapping->entity] = $relatedData;
@@ -1087,6 +1111,21 @@ abstract class AbstractDtoProvider
                 }
             }
         }
+
+        /**
+         * TODO: to fix: 
+         * 1- collection or single item merge. currently the response is not correct
+         *    pass ids=R101,R102 or pass /${id} in url.
+         * 
+         * 2- format the resposne of merge, and simplify the merge, should be super easy
+         *    - get current relationship
+         *    - search ids of two results
+         *    - remove @context, @id, @type from hydra, and make new one the enotty of merge
+         *    - merge one or all (single or collection)
+         *    
+         * 
+         */
+
 
         // If we have data from multiple microservices, merge them
         if (count($microserviceData) > 1) {
