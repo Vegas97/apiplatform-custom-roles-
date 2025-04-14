@@ -352,23 +352,55 @@ class MockMicroserviceClient
         
         // Filter by ID if provided
         if ($id !== null) {
+            $this->_logger->info('Filtering by specific ID', [
+                'id' => $id
+            ]);
+            
             $data = array_filter(
                 $data, 
                 function ($item) use ($id) {
                     return isset($item['id']) && $item['id'] == $id;
                 }
             );
+            
+            // If we're filtering by ID, we don't need to apply the 'ids' filter
+            // Remove 'ids' from query parameters if it exists
+            if (isset($queryParameters['ids'])) {
+                $this->_logger->info('ID parameter takes precedence over ids query parameter');
+                unset($queryParameters['ids']);
+            }
         }
         
         // Apply any additional query parameters filtering
         foreach ($queryParameters as $key => $value) {
             if ($key !== 'context') {
-                $data = array_filter(
-                    $data, 
-                    function ($item) use ($key, $value) {
-                        return isset($item[$key]) && $item[$key] == $value;
-                    }
-                );
+                // Special handling for 'ids' parameter
+                if ($key === 'ids') {
+                    // Handle both single ID and comma-separated list of IDs
+                    $idList = strpos($value, ',') !== false 
+                        ? array_map('trim', explode(',', $value)) 
+                        : [$value]; // Single ID case
+                    
+                    $this->_logger->info('Processing ids parameter', [
+                        'idCount' => count($idList),
+                        'ids' => $idList,
+                        'isMultiple' => strpos($value, ',') !== false
+                    ]);
+                    
+                    $data = array_filter(
+                        $data,
+                        function ($item) use ($idList) {
+                            return isset($item['id']) && in_array($item['id'], $idList);
+                        }
+                    );
+                } else {
+                    $data = array_filter(
+                        $data, 
+                        function ($item) use ($key, $value) {
+                            return isset($item[$key]) && $item[$key] == $value;
+                        }
+                    );
+                }
             }
         }
         
