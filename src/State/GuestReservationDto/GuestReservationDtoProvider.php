@@ -15,13 +15,14 @@
 
 declare(strict_types=1);
 
-namespace App\State;
+namespace App\State\GuestReservationDto;
 
+use DateTime;
+use App\Dto\EntityMappingDto;
+use App\State\AbstractDtoProvider;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\ProviderInterface;
 use App\ApiResource\GuestReservationDto;
-use App\Dto\EntityMappingDto;
-use DateTime;
 
 /**
  * Provider for GuestReservationDto resources with role-based access control.
@@ -39,13 +40,12 @@ class GuestReservationDtoProvider extends AbstractDtoProvider implements Provide
      *
      * @param Operation $operation    The operation
      * @param array     $uriVariables The URI variables
-     * @param array     $context      The context
      *
      * @return object|array|null The data
      */
-    public function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
+    public function provide(Operation $operation, array $uriVariables = []): object|array|null
     {
-        return parent::provide($operation, $uriVariables, $context);
+        return parent::provide($operation, $uriVariables);
     }
 
     /**
@@ -57,7 +57,7 @@ class GuestReservationDtoProvider extends AbstractDtoProvider implements Provide
     {
         return GuestReservationDto::class;
     }
-    
+
     /**
      * Get entity mappings with accessible fields.
      *
@@ -69,34 +69,6 @@ class GuestReservationDtoProvider extends AbstractDtoProvider implements Provide
     {
         // Use the automatic entity mapping from AbstractDtoProvider
         return parent::getEntityMappings($accessibleFields);
-    }
-    
-    /**
-     * Get merge keys for joining data from multiple microservices.
-     *
-     * @return array Array of merge keys in the format ['entity1:field1', 'entity2:field2']
-     */
-    protected function getMergeKeys(): array
-    {
-        // Use the automatic merge key detection from AbstractDtoProvider
-        $autoMergeKeys = parent::getMergeKeys();
-        
-        // If automatic detection found merge keys, use them
-        if (!empty($autoMergeKeys)) {
-            return $autoMergeKeys;
-        }
-        
-        // Primary connection between Guest and Reservation is through reservationId
-        return [
-            'Guest:reservationId',
-            'Reservation:id'
-        ];
-        
-        // Alternative connection through document IDs if needed
-        // return [
-        //     'Guest:documentId',
-        //     'Reservation:guestDocumentId'
-        // ];
     }
 
     /**

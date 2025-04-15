@@ -127,6 +127,20 @@ abstract class AbstractDtoProvider
     }
 
     /**
+     * Get the DTO class name.
+     *
+     * @return string The fully qualified class name of the DTO
+     */
+    abstract protected function getDtoClass(): string;
+
+    /**
+     * Get items for the provider.
+     *
+     * @return array Array of DTO objects
+     */
+    abstract protected function getItems(): array;
+
+    /**
      * Determines whether to use real microservice data or mock data.
      *
      * @return bool True if real data should be used, false for mock data
@@ -149,6 +163,16 @@ abstract class AbstractDtoProvider
 
     /**
      * Provides DTO objects for API Platform with role-based access control.
+     * 
+     * @logic:
+     *  1) auth jwt get portal and userRoles
+     *  2) get dto class
+     *  3) get Action + get isCollection + get isItem
+     *  4) get accessible fields
+     *  5) get entity calls + get relationships
+     *  6) fetch data from microservices (+ merge logic)
+     *  7) filter out data + formatting
+     *  8) return data
      *
      * @param Operation $operation    The operation
      * @param array     $uriVariables The URI variables
@@ -156,7 +180,7 @@ abstract class AbstractDtoProvider
      *
      * @return object|array|null The data
      */
-    protected function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
+    protected function provide(Operation $operation, array $uriVariables = []): object|array|null
     {
         // Get the current request
         $request = $this->requestStack->getCurrentRequest();
@@ -333,20 +357,6 @@ abstract class AbstractDtoProvider
 
         return $filteredItem;
     }
-
-    /**
-     * Get the DTO class name.
-     *
-     * @return string The fully qualified class name of the DTO
-     */
-    abstract protected function getDtoClass(): string;
-
-    /**
-     * Get items for the provider.
-     *
-     * @return array Array of DTO objects
-     */
-    abstract protected function getItems(): array;
 
     /**
      * Get entity mappings with accessible fields.
@@ -560,6 +570,7 @@ abstract class AbstractDtoProvider
                     $sourceEntity = $fields[0]->getEntity();
                     $targetEntity = $fields[1]->getEntity();
 
+                    // todo improve this is not clear
                     $relationships[] = [
                         'sourceField' => $sourceField,
                         'targetField' => $targetField,
@@ -571,249 +582,7 @@ abstract class AbstractDtoProvider
             }
         }
 
-        // If no explicit relationships found, look for fields with naming conventions
-        if (empty($relationships)) {
-            // Map to track fields that could be foreign keys
-            $foreignKeyFields = [];
-            $entityFields = [];
-
-            // First pass: identify potential foreign keys and entity fields
-            foreach ($properties as $property) {
-                $microserviceFieldAttributes = $property->getAttributes(MicroserviceField::class);
-
-                if (empty($microserviceFieldAttributes)) {
-                    continue;
-                }
-
-                $microserviceField = $microserviceFieldAttributes[0]->newInstance();
-                $entity = $microserviceField->getEntity();
-                $field = $microserviceField->getField();
-
-                // Store all fields with their entities
-                $entityFields[$property->getName()] = [
-                    'entity' => $entity,
-                    'field' => $field
-                ];
-
-                // Check if this field ends with 'Id' - potential foreign key
-                if (substr($field, -2) === 'Id' || substr($property->getName(), -2) === 'Id') {
-                    $foreignKeyFields[$property->getName()] = [
-                        'entity' => $entity,
-                        'field' => $field
-                    ];
-                }
-            }
-
-            // Second pass: match foreign keys with their target entities
-            foreach ($foreignKeyFields as $propertyName => $foreignKeyInfo) {
-                $sourceEntity = $foreignKeyInfo['entity'];
-                $sourceField = $foreignKeyInfo['field'];
-
-                // Try to find the target entity by removing 'Id' from the field name
-                $baseFieldName = substr($propertyName, 0, -2);
-
-                // Look for a property that matches the base name
-                foreach ($entityFields as $targetPropertyName => $targetInfo) {
-                    // Skip if it's the same entity
-                    if ($targetInfo['entity'] === $sourceEntity) {
-                        continue;
-                    }
-
-                    // Check if the property name matches our base field name pattern
-                    if (
-                        $targetPropertyName === $baseFieldName ||
-                        strtolower($targetPropertyName) === strtolower($baseFieldName)
-                    ) {
-                        $relationships[] = [
-                            'sourceField' => $sourceField,
-                            'targetField' => 'id', // Assume the target field is 'id'
-                            'sourceEntity' => $sourceEntity,
-                            'relatedEntity' => $targetInfo['entity'],
-                            'propertyName' => $propertyName
-                        ];
-                        break;
-                    }
-                }
-            }
-        }
-
         return $relationships;
-    }
-
-    /**
-     * Merge data from multiple microservice sources.
-     *
-     * @param array $microserviceData   Data from multiple microservices
-     * @param array $relationshipFields Relationship field definitions
-     *
-     * @return array Merged data
-     */
-    protected function mergeDataFromMultipleSources(array $microserviceData, array $relationshipFields): array
-    {
-        // If we have explicit relationship fields, use them for merging
-        if (!empty($relationshipFields)) {
-            $primaryEntity = array_key_first($microserviceData);
-            $result = $microserviceData[$primaryEntity];
-
-            // Create a dependency graph of entities
-            $entityGraph = $this->buildEntityRelationshipGraph($relationshipFields);
-
-            // Track which entities have been merged already
-            $mergedEntities = [$primaryEntity => true];
-            $pendingEntities = $this->findRelatedEntities($primaryEntity, $entityGraph);
-
-            // Continue merging until we've processed all related entities
-            $iterationCount = 0;
-            $maxIterations = count($microserviceData) * 2; // Safety limit to prevent infinite loops
-
-            while (!empty($pendingEntities) && $iterationCount < $maxIterations) {
-                $iterationCount++;
-                $nextEntity = array_shift($pendingEntities);
-
-                // Skip if already merged or no data available
-                if (isset($mergedEntities[$nextEntity]) || !isset($microserviceData[$nextEntity])) {
-                    continue;
-                }
-
-                // Find relationships between already merged entities and this entity
-                $relationshipsToMerge = [];
-                foreach ($relationshipFields as $relationship) {
-                    $sourceEntity = $relationship['sourceEntity'];
-                    $relatedEntity = $relationship['relatedEntity'];
-
-                    // Check if this relationship connects our already merged entities with the next entity
-                    if ((isset($mergedEntities[$sourceEntity]) && $relatedEntity === $nextEntity) ||
-                        (isset($mergedEntities[$relatedEntity]) && $sourceEntity === $nextEntity)
-                    ) {
-                        $relationshipsToMerge[] = $relationship;
-                    }
-                }
-
-                // Merge this entity's data using the identified relationships
-                foreach ($relationshipsToMerge as $relationship) {
-                    $sourceEntity = $relationship['sourceEntity'];
-                    $relatedEntity = $relationship['relatedEntity'];
-                    $sourceField = $relationship['sourceField'];
-                    $targetField = $relationship['targetField'];
-
-                    // Determine which entity is already merged and which is being added
-                    if (isset($mergedEntities[$sourceEntity])) {
-                        $existingData = $result;
-                        $newEntityData = $microserviceData[$relatedEntity];
-                        $lookupField = $sourceField;
-                        $matchField = $targetField;
-                    } else {
-                        $existingData = $result;
-                        $newEntityData = $microserviceData[$sourceEntity];
-                        $lookupField = $targetField;
-                        $matchField = $sourceField;
-                    }
-
-                    // Create a lookup map for the new entity data
-                    $newEntityMap = [];
-                    foreach ($newEntityData as $item) {
-                        if (isset($item[$matchField])) {
-                            $newEntityMap[$item[$matchField]] = $item;
-                        }
-                    }
-
-                    // Merge the new entity data into the result
-                    foreach ($result as $key => $item) {
-                        if (isset($item[$lookupField]) && isset($newEntityMap[$item[$lookupField]])) {
-                            $relatedItem = $newEntityMap[$item[$lookupField]];
-                            foreach ($relatedItem as $field => $value) {
-                                // Avoid overwriting existing fields
-                                if (!isset($item[$field])) {
-                                    $result[$key][$field] = $value;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Mark this entity as merged
-                $mergedEntities[$nextEntity] = true;
-
-                // Add any new related entities to the pending list
-                $newRelatedEntities = $this->findRelatedEntities($nextEntity, $entityGraph);
-                foreach ($newRelatedEntities as $entity) {
-                    if (!isset($mergedEntities[$entity]) && !in_array($entity, $pendingEntities)) {
-                        $pendingEntities[] = $entity;
-                    }
-                }
-
-                $this->logger->debug(
-                    'Entity merge progress',
-                    [
-                        'iteration' => $iterationCount,
-                        'merged' => array_keys($mergedEntities),
-                        'pending' => $pendingEntities
-                    ]
-                );
-            }
-
-            if ($iterationCount >= $maxIterations) {
-                $this->logger->warning(
-                    'Reached maximum iterations when merging entities',
-                    [
-                        'mergedEntities' => array_keys($mergedEntities),
-                        'pendingEntities' => $pendingEntities
-                    ]
-                );
-            }
-
-            return $result;
-        }
-
-        // Fall back to the old merge keys approach if no relationship fields
-        $mergeKeys = $this->getMergeKeys();
-    }
-
-    /**
-     * Build a graph of entity relationships.
-     *
-     * @param array $relationshipFields Array of relationship field definitions
-     *
-     * @return array Entity relationship graph
-     */
-    private function buildEntityRelationshipGraph(array $relationshipFields): array
-    {
-        $graph = [];
-
-        foreach ($relationshipFields as $relationship) {
-            $sourceEntity = $relationship['sourceEntity'];
-            $relatedEntity = $relationship['relatedEntity'];
-
-            // Add bidirectional relationship
-            if (!isset($graph[$sourceEntity])) {
-                $graph[$sourceEntity] = [];
-            }
-            if (!isset($graph[$relatedEntity])) {
-                $graph[$relatedEntity] = [];
-            }
-
-            if (!in_array($relatedEntity, $graph[$sourceEntity])) {
-                $graph[$sourceEntity][] = $relatedEntity;
-            }
-            if (!in_array($sourceEntity, $graph[$relatedEntity])) {
-                $graph[$relatedEntity][] = $sourceEntity;
-            }
-        }
-
-        return $graph;
-    }
-
-    /**
-     * Find all entities related to a given entity.
-     *
-     * @param string $entity Entity name
-     * @param array  $graph  Entity relationship graph
-     *
-     * @return array Related entity names
-     */
-    private function findRelatedEntities(string $entity, array $graph): array
-    {
-        return $graph[$entity] ?? [];
     }
 
     /**
@@ -1001,13 +770,13 @@ abstract class AbstractDtoProvider
 
                 // Handle differently based on whether this is a collection or single item operation
                 $relatedQueryParams = $queryParameters;
-                
+
                 if ($isItemOperation) {
                     // For single item operations, get the source ID from the relationship field
                     // and search for it in the current data
                     $sourceField = $relationField['sourceField'];
                     $sourceId = null;
-                    
+
                     // Get the current data item (should be a single item for item operations)
                     $currentDataItem = null;
                     if (isset($primaryData[0])) {
@@ -1015,7 +784,7 @@ abstract class AbstractDtoProvider
                     } elseif (is_array($primaryData) && !isset($primaryData['hydra:member'])) {
                         $currentDataItem = $primaryData;
                     }
-                    
+
                     // Extract the source ID from the current data item
                     if ($currentDataItem && isset($currentDataItem[$sourceField])) {
                         $sourceId = $currentDataItem[$sourceField];
@@ -1039,7 +808,7 @@ abstract class AbstractDtoProvider
                         // Fall back to the first related ID if we can't find the source ID
                         $sourceId = reset($relatedIds);
                     }
-                    
+
                     // Directly fetch the single item using the source ID
                     $relatedData = $this->shouldUseRealData()
                         ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, $sourceId)
@@ -1054,7 +823,7 @@ abstract class AbstractDtoProvider
                             'idCount' => count(array_unique($relatedIds))
                         ]
                     );
-                    
+
                     // Fetch the collection of items using the ids parameter
                     $relatedData = $this->shouldUseRealData()
                         ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, null)
@@ -1286,202 +1055,6 @@ abstract class AbstractDtoProvider
         ]);
 
         return $results;
-    }
-
-    /**
-     * Get merge keys for joining data from multiple microservices.
-     *
-     * @return array Array of merge keys in the format ['entity1:field1', 'entity2:field2']
-     */
-    protected function getMergeKeys(): array
-    {
-        $dtoClass = $this->getDtoClass();
-        $reflection = new ReflectionClass($dtoClass);
-        $properties = $reflection->getProperties(ReflectionProperty::IS_PUBLIC);
-
-        // First, look for properties with MicroserviceRelationship attributes
-        foreach ($properties as $property) {
-            $relationshipAttributes = $property->getAttributes(MicroserviceRelationship::class);
-
-            if (!empty($relationshipAttributes)) {
-                $relationship = $relationshipAttributes[0]->newInstance();
-                $fields = $relationship->getFields();
-
-                if (count($fields) >= 2) {
-                    $mergeKeys = [];
-
-                    foreach ($fields as $field) {
-                        $entity = $field->getEntity();
-                        $fieldName = $field->getField();
-                        $mergeKeys[] = $entity . ':' . $fieldName;
-                    }
-
-                    $this->logger->info(
-                        'Found explicit relationship merge keys',
-                        [
-                            'property' => $property->getName(),
-                            'mergeKeys' => $mergeKeys
-                        ]
-                    );
-                    return $mergeKeys;
-                }
-            }
-        }
-
-        // Then, look for properties with multiple MicroserviceField attributes (legacy support)
-        foreach ($properties as $property) {
-            $microserviceFieldAttributes = $property->getAttributes(MicroserviceField::class);
-
-            if (count($microserviceFieldAttributes) > 1) {
-                // Found a property with multiple MicroserviceField attributes - explicit merge key
-                $mergeKeys = [];
-
-                foreach ($microserviceFieldAttributes as $attribute) {
-                    $microserviceField = $attribute->newInstance();
-                    $entity = $microserviceField->getEntity();
-                    $field = $microserviceField->getField();
-                    $mergeKeys[] = $entity . ':' . $field;
-                }
-
-                // If we have at least two keys, return them
-                if (count($mergeKeys) >= 2) {
-                    $this->logger->info(
-                        'Found explicit merge keys from multiple attributes',
-                        [
-                            'property' => $property->getName(),
-                            'mergeKeys' => $mergeKeys
-                        ]
-                    );
-                    return $mergeKeys;
-                }
-            }
-        }
-
-        // If no explicit merge keys found, fall back to the heuristic approach
-        // Look for properties with the MicroserviceField attribute that have matching field names
-        $potentialKeys = [];
-        $fieldToEntityMap = [];
-
-        // First pass: collect all fields and their entity mappings
-        foreach ($properties as $property) {
-            $microserviceFieldAttributes = $property->getAttributes(MicroserviceField::class);
-
-            if (empty($microserviceFieldAttributes)) {
-                continue;
-            }
-
-            // Use the first attribute for the heuristic approach
-            $microserviceField = $microserviceFieldAttributes[0]->newInstance();
-            $microservice = $microserviceField->getMicroservice();
-            $entity = $microserviceField->getEntity();
-            $field = $microserviceField->getField();
-
-            // Store mapping of field to entity and microservice
-            $fieldToEntityMap[$field] = [
-                'entity' => $entity,
-                'microservice' => $microservice
-            ];
-        }
-
-        // Second pass: look for fields that end with 'Id' and check if there's a matching field
-        foreach ($properties as $property) {
-            $microserviceFieldAttributes = $property->getAttributes(MicroserviceField::class);
-
-            if (empty($microserviceFieldAttributes)) {
-                continue;
-            }
-
-            // Use the first attribute for the heuristic approach
-            $microserviceField = $microserviceFieldAttributes[0]->newInstance();
-            $microservice = $microserviceField->getMicroservice();
-            $entity = $microserviceField->getEntity();
-            $field = $microserviceField->getField();
-
-            // Check if this field ends with 'Id'
-            if (substr($field, -2) === 'Id') {
-                $baseField = substr($field, 0, -2);
-
-                // Check if there's a matching field in another entity
-                foreach ($fieldToEntityMap as $otherField => $otherEntityInfo) {
-                    if (
-                        $otherField === 'id'
-                        && ($otherEntityInfo['entity'] !== $entity
-                            || $otherEntityInfo['microservice'] !== $microservice)
-                    ) {
-                        // Found a potential match: this field is a foreign key to another entity
-                        $potentialKeys[] = $entity . ':' . $field;
-                        $potentialKeys[] = $otherEntityInfo['entity'] . ':' . $otherField;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // If we found potential keys, return them
-        if (count($potentialKeys) >= 2) {
-            $this->logger->info(
-                'Found potential merge keys using heuristic approach',
-                [
-                    'mergeKeys' => $potentialKeys
-                ]
-            );
-            return $potentialKeys;
-        }
-
-        // Default implementation returns empty array
-        // Override in concrete providers to define merge keys
-        return [];
-    }
-
-    /**
-     * Merge data from multiple microservices based on key fields.
-     *
-     * @param array  $data1     Data from first microservice
-     * @param array  $data2     Data from second microservice
-     * @param string $keyField1 Key field in first dataset
-     * @param string $keyField2 Key field in second dataset
-     *
-     * @return array Merged data
-     */
-    protected function mergeData(
-        array $data1,
-        array $data2,
-        string $keyField1,
-        string $keyField2
-    ): array {
-        $result = [];
-
-        // Extract the actual field names without entity prefix
-        $field1 = explode(':', $keyField1)[1] ?? $keyField1;
-        $field2 = explode(':', $keyField2)[1] ?? $keyField2;
-
-        // Create a lookup map for the second dataset
-        $data2Map = [];
-        foreach ($data2 as $item) {
-            if (isset($item[$field2])) {
-                $data2Map[$item[$field2]] = $item;
-            }
-        }
-
-        // Merge data based on the key fields
-        foreach ($data1 as $item1) {
-            if (!isset($item1[$field1])) {
-                continue;
-            }
-
-            $key = $item1[$field1];
-
-            if (isset($data2Map[$key])) {
-                // Merge the two items
-                $mergedItem = array_merge($item1, $data2Map[$key]);
-                $result[] = $mergedItem;
-            } else {
-                // Include item1 even if no match in data2
-                $result[] = $item1;
-            }
-        }
-
-        return $result;
     }
 
     /**

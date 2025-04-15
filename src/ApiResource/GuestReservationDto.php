@@ -23,7 +23,7 @@ use ApiPlatform\Metadata\GetCollection;
 use App\Attribute\AllowedRoles;
 use App\Attribute\MicroserviceField;
 use App\Attribute\MicroserviceRelationship;
-use App\State\GuestReservationDtoProvider;
+use App\State\GuestReservationDto\GuestReservationDtoProvider;
 use DateTimeInterface;
 use Symfony\Component\Validator\Constraints as Assert;
 
