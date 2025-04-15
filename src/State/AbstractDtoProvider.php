@@ -17,22 +17,23 @@ declare(strict_types=1);
 
 namespace App\State;
 
-use ApiPlatform\Metadata\Operation;
-use ApiPlatform\State\ProviderInterface;
-use App\Attribute\MicroserviceField;
-use App\Attribute\MicroserviceRelationship;
-use App\Config\MicroserviceEntityMapping;
-use App\Dto\EntityMappingDto;
-use App\Service\FieldAccessResolver;
-use App\Service\JwtService;
-use App\Service\MicroserviceClient;
-use App\Service\MockMicroserviceClient;
-use Psr\Log\LoggerInterface;
-use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
-use Symfony\Component\HttpFoundation\RequestStack;
-use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use ReflectionClass;
 use ReflectionProperty;
+use App\Service\JwtService;
+use Psr\Log\LoggerInterface;
+use App\Dto\EntityMappingDto;
+use ApiPlatform\Metadata\Operation;
+use App\Service\MicroserviceClient;
+use App\Attribute\MicroserviceField;
+use App\Service\FieldAccessResolver;
+use App\Service\MockMicroserviceClient;
+use ApiPlatform\State\ProviderInterface;
+use App\Config\MicroserviceEntityMapping;
+use App\Attribute\MicroserviceRelationship;
+use Symfony\Component\HttpFoundation\RequestStack;
+use ApiPlatform\Metadata\CollectionOperationInterface;
+use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 /**
  * Abstract provider for DTO resources with role-based access control.
@@ -180,8 +181,10 @@ abstract class AbstractDtoProvider
      *
      * @return object|array|null The data
      */
-    protected function provide(Operation $operation, array $uriVariables = []): object|array|null
+    protected function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
     {
+        // STEP 1: Authenticate
+
         // Get the current request
         $request = $this->requestStack->getCurrentRequest();
 
@@ -198,7 +201,7 @@ abstract class AbstractDtoProvider
 
             // Dynamically extract portal and roles from the authentication data
             $portal = $authData['portal'] ?? null;
-            $userRoles = $authData['roles'] ?? [];
+            $userRoles = $authData['userRoles'] ?? [];
 
             // Validate that we have the required authentication data
             if (null === $portal) {
@@ -231,25 +234,29 @@ abstract class AbstractDtoProvider
             throw $e;
         }
 
-        // Determine if this is a collection operation
-        $operationName = $operation->getName();
-        $isCollectionOperation = strpos($operationName, 'collection') !== false || $operationName === 'get_collection';
-        $isItemOperation = !$isCollectionOperation;
+        // STEP 2: Get Input Data
+        // get operation action method (GET Collection, GET Item, POST, PUT, PATCH, DELETE)
+        // if GET, we need to know if it's a collection or item
+        // final input data: actionMethod, isCollection, userRoles, portal, dtoClass
+
+
+        $operationMethod = $operation->getMethod();
+        $isCollectionOperation = $operation instanceof CollectionOperationInterface;
+
+        // Get the DTO class name
+        $dtoClass = $this->getDtoClass();
 
         // Log the request parameters
         $this->logger->info(
             'Processing request',
             [
-                'operation' => $operationName,
+                'actionMethod' => $operationMethod,
                 'isCollection' => $isCollectionOperation,
-                'isItemOperation' => $isItemOperation,
                 'portal' => $portal,
-                'userRoles' => $userRoles
+                'userRoles' => $userRoles,
+                'dtoClass' => $dtoClass
             ]
         );
-
-        // Get the DTO class name
-        $dtoClass = $this->getDtoClass();
 
         // Get accessible fields and entity mappings
         $accessibleFields = $this->fieldAccessResolver->getAccessibleFields(
@@ -277,8 +284,7 @@ abstract class AbstractDtoProvider
         $items = !empty($entityMappings) ? $this->fetchFromMicroservices(
             $entityMappings,
             $isCollectionOperation,
-            $isItemOperation,
-            $operationName,
+            $operationMethod,
             $uriVariables
         ) : $this->getItems();
 
@@ -599,7 +605,6 @@ abstract class AbstractDtoProvider
     protected function fetchFromMicroservices(
         array $entityMappings,
         bool $isCollectionOperation,
-        bool $isItemOperation,
         string $operationName,
         array $uriVariables = []
     ): array {
@@ -623,321 +628,7 @@ abstract class AbstractDtoProvider
             }
         }
 
-        // Get the ID from URI variables if this is an item operation
-        $id = $isItemOperation && !empty($uriVariables['id']) ? $uriVariables['id'] : null;
-
-        // Enhanced logging for operation details
-        $this->logger->info(
-            '[AbstractDtoProvider] Operation details',
-            [
-                'operationType' => $operationName,
-                'isCollectionOperation' => $isCollectionOperation,
-                'isItemOperation' => $isItemOperation,
-                'id' => $id,
-                'dtoClass' => $dtoClass,
-                'entityMappingsCount' => count($entityMappings),
-                'relationshipFieldsCount' => count($relationshipFields)
-            ]
-        );
-
-        // Log the entity mappings for debugging
-        $mappingSummary = [];
-        foreach ($entityMappings as $key => $mapping) {
-            if ($mapping instanceof EntityMappingDto) {
-                $mappingSummary[$key] = [
-                    'microservice' => $mapping->microservice,
-                    'entity' => $mapping->entity,
-                    'endpoint' => $mapping->endpoint
-                ];
-            }
-        }
-        $this->logger->debug('[AbstractDtoProvider] Entity mappings', ['mappings' => $mappingSummary]);
-
-        // Create a working copy of entity mappings to preserve the original for later use
-        $workingEntityMappings = $entityMappings;
-
-        // Fetch data from primary microservice first
-        $primaryMapping = reset($workingEntityMappings);
-        $primaryKey = key($workingEntityMappings);
-
-        if (!$primaryMapping instanceof EntityMappingDto) {
-            $this->logger->warning(
-                'Invalid primary entity mapping',
-                [
-                    'mapping' => get_class($primaryMapping)
-                ]
-            );
-            return [];
-        }
-
-        // Log which client we're using
-        $useRealData = $this->shouldUseRealData();
-        $this->logger->info(
-            '[AbstractDtoProvider] Fetching primary data',
-            [
-                'useRealData' => $useRealData,
-                'microservice' => $primaryMapping->microservice,
-                'entity' => $primaryMapping->entity,
-                'endpoint' => $primaryMapping->endpoint,
-                'id' => $id
-            ]
-        );
-
-        // Use either real or mock client based on configuration
-        $primaryData = $useRealData
-            ? $this->microserviceClient->fetchEntityData($primaryMapping, $queryParameters, $id)
-            : $this->mockClient->fetchEntityData($primaryMapping, $queryParameters, $id);
-
-        // Log the result of the primary data fetch
-        $this->logger->info(
-            '[AbstractDtoProvider] Primary data fetched',
-            [
-                'dataCount' => is_array($primaryData) ? count($primaryData) : 'not an array',
-                'dataType' => gettype($primaryData)
-            ]
-        );
-
-        // Store the data with the entity name as key
-        $microserviceData[$primaryMapping->entity] = $primaryData;
-
-        // Remove the primary mapping from the working copy to avoid fetching it again
-        unset($workingEntityMappings[$primaryKey]);
-
-        // Process remaining mappings based on whether we have relationship fields and primary data
-        if (!empty($relationshipFields) && !empty($primaryData) && !empty($workingEntityMappings)) {
-            // Process related entities using relationship fields
-            $this->logger->info('Processing related entities using relationship fields');
-
-            // Create a map of entity names to their mappings for faster lookup
-            $entityMappingsByName = [];
-            foreach ($workingEntityMappings as $mapping) {
-                if ($mapping instanceof EntityMappingDto) {
-                    $entityMappingsByName[$mapping->entity] = $mapping;
-                }
-            }
-
-            // Process each relationship field
-            foreach ($relationshipFields as $relationField) {
-                $relatedEntityName = $relationField['relatedEntity'];
-
-                // Skip if we don't have a mapping for this entity
-                if (!isset($entityMappingsByName[$relatedEntityName])) {
-                    $this->logger->warning(
-                        'No mapping found for related entity',
-                        [
-                            'relatedEntity' => $relatedEntityName,
-                            'availableEntities' => array_keys($entityMappingsByName)
-                        ]
-                    );
-                    continue;
-                }
-
-                $relatedMapping = $entityMappingsByName[$relatedEntityName];
-                $sourceField = $relationField['sourceField'];
-
-                // Extract IDs from primary data for the relationship field
-                $relatedIds = [];
-                $dataToProcess = $primaryData;
-
-                // Check if this is a hydra collection format
-                if ($isCollectionOperation && isset($primaryData['hydra:member']) && is_array($primaryData['hydra:member'])) {
-                    $this->logger->info('Processing hydra:member from collection data for relationship extraction', [
-                        'memberCount' => count($primaryData['hydra:member'])
-                    ]);
-                    $dataToProcess = $primaryData['hydra:member'];
-                } else {
-                    $dataToProcess = [$primaryData];
-                }
-
-                foreach ($dataToProcess as $item) {
-                    if (isset($item[$sourceField]) && !empty($item[$sourceField])) {
-                        $relatedIds[] = $item[$sourceField];
-                    }
-                }
-
-                // Skip if no related IDs found
-                if (empty($relatedIds)) {
-                    $this->logger->info(
-                        'No related IDs found for relationship',
-                        [
-                            'sourceField' => $sourceField,
-                            'relatedEntity' => $relatedEntityName,
-                            'primaryDataCount' => count($primaryData)
-                        ]
-                    );
-                    continue;
-                }
-
-                // Handle differently based on whether this is a collection or single item operation
-                $relatedQueryParams = $queryParameters;
-
-                if ($isItemOperation) {
-                    // For single item operations, get the source ID from the relationship field
-                    // and search for it in the current data
-                    $sourceField = $relationField['sourceField'];
-                    $sourceId = null;
-
-                    // Get the current data item (should be a single item for item operations)
-                    $currentDataItem = null;
-                    if (isset($primaryData[0])) {
-                        $currentDataItem = $primaryData[0];
-                    } elseif (is_array($primaryData) && !isset($primaryData['hydra:member'])) {
-                        $currentDataItem = $primaryData;
-                    }
-
-                    // Extract the source ID from the current data item
-                    if ($currentDataItem && isset($currentDataItem[$sourceField])) {
-                        $sourceId = $currentDataItem[$sourceField];
-                        $this->logger->info(
-                            'Found source ID in current data',
-                            [
-                                'entity' => $relatedMapping->entity,
-                                'sourceField' => $sourceField,
-                                'sourceId' => $sourceId
-                            ]
-                        );
-                    } else {
-                        $this->logger->warning(
-                            'Could not find source ID in current data',
-                            [
-                                'entity' => $relatedMapping->entity,
-                                'sourceField' => $sourceField,
-                                'currentDataKeys' => $currentDataItem ? array_keys($currentDataItem) : 'null'
-                            ]
-                        );
-                        // Fall back to the first related ID if we can't find the source ID
-                        $sourceId = reset($relatedIds);
-                    }
-
-                    // Directly fetch the single item using the source ID
-                    $relatedData = $this->shouldUseRealData()
-                        ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, $sourceId)
-                        : $this->mockClient->fetchEntityData($relatedMapping, $relatedQueryParams, $sourceId);
-                } else {
-                    // For collection operations, use the ids parameter
-                    $relatedQueryParams['ids'] = implode(',', array_unique($relatedIds));
-                    $this->logger->info(
-                        'Fetching collection of related items',
-                        [
-                            'entity' => $relatedMapping->entity,
-                            'idCount' => count(array_unique($relatedIds))
-                        ]
-                    );
-
-                    // Fetch the collection of items using the ids parameter
-                    $relatedData = $this->shouldUseRealData()
-                        ? $this->microserviceClient->fetchEntityData($relatedMapping, $relatedQueryParams, null)
-                        : $this->mockClient->fetchEntityData($relatedMapping, $relatedQueryParams, null);
-                }
-
-                // Store the data with the entity name as key
-                $microserviceData[$relatedMapping->entity] = $relatedData;
-
-                // Remove this entity from the mappings as we've processed it
-                unset($entityMappingsByName[$relatedEntityName]);
-            }
-
-            // Process any remaining entity mappings that weren't handled by relationships
-            foreach ($entityMappingsByName as $entityName => $mapping) {
-                $this->logger->info(
-                    'Processing remaining entity mapping not handled by relationships',
-                    ['entity' => $entityName]
-                );
-
-                $data = $this->shouldUseRealData()
-                    ? $this->microserviceClient->fetchEntityData($mapping, $queryParameters, $id)
-                    : $this->mockClient->fetchEntityData($mapping, $queryParameters, $id);
-
-                $microserviceData[$mapping->entity] = $data;
-            }
-        } else {
-            // Process remaining mappings without relationship context
-            if (!empty($workingEntityMappings)) {
-                $this->logger->info('Processing entity mappings without relationship context', [
-                    'hasPrimaryData' => !empty($primaryData),
-                    'hasRelationshipFields' => !empty($relationshipFields),
-                    'remainingMappings' => count($workingEntityMappings)
-                ]);
-
-                foreach ($workingEntityMappings as $mapping) {
-                    if (!$mapping instanceof EntityMappingDto) {
-                        $this->logger->warning(
-                            'Invalid entity mapping',
-                            [
-                                'mapping' => get_class($mapping)
-                            ]
-                        );
-                        continue;
-                    }
-
-                    // Use either real or mock client based on configuration
-                    $data = $this->shouldUseRealData()
-                        ? $this->microserviceClient->fetchEntityData($mapping, $queryParameters, $id)
-                        : $this->mockClient->fetchEntityData($mapping, $queryParameters, $id);
-
-                    // Store the data with the entity name as key
-                    $microserviceData[$mapping->entity] = $data;
-                }
-            }
-        }
-
-        /**
-         * TODO: to fix: 
-         * 1- collection or single item merge. currently the response is not correct
-         *    pass ids=R101,R102 or pass /${id} in url.
-         * 
-         * 2- format the resposne of merge, and simplify the merge, should be super easy
-         *    - get current relationship
-         *    - search ids of two results
-         *    - remove @context, @id, @type from hydra, and make new one the enotty of merge
-         *    - merge one or all (single or collection)
-         *    
-         * 
-         */
-
-
-        // If we have data from multiple microservices, merge them
-        if (count($microserviceData) > 1) {
-            $mergedData = $this->mergeDataFromMultipleSources($microserviceData, $relationshipFields);
-            // Convert merged data to DTOs - use original entityMappings for complete field mapping
-            $results = $this->convertToDtos($mergedData, $dtoClass, $entityMappings);
-        } elseif (count($microserviceData) === 1) {
-            // If we only have data from one microservice, we still need to ensure proper structure
-            $entityName = array_key_first($microserviceData);
-            $data = $microserviceData[$entityName];
-
-            // For item operations, ensure data is in the expected format
-            if ($isItemOperation && !empty($data) && !isset($data[0]) && is_array($data)) {
-                // If it's a single item, wrap it in an array to match the expected format
-                $data = [$data];
-                $this->logger->info('Wrapped single item in array for DTO conversion');
-            }
-
-            // For collection operations, the data structure might be different
-            if ($isCollectionOperation && !empty($data)) {
-                // Check if this is a hydra collection format
-                if (isset($data['hydra:member']) && is_array($data['hydra:member'])) {
-                    $this->logger->info('Processing hydra:member from collection data', [
-                        'memberCount' => count($data['hydra:member'])
-                    ]);
-                    $data = $data['hydra:member'];
-                }
-            }
-
-            // Convert data to DTOs - use original entityMappings for complete field mapping
-            $results = $this->convertToDtos($data, $dtoClass, $entityMappings, $isCollectionOperation);
-        }
-
-        $this->logger->info('[AbstractDtoProvider] Completed microservice data fetching and DTO conversion', [
-            'resultCount' => count($results),
-            'microserviceCount' => count($microserviceData),
-            'dtoClass' => $dtoClass,
-            'isCollectionOperation' => $isCollectionOperation,
-            'isItemOperation' => $isItemOperation,
-            'hasRelationshipFields' => !empty($relationshipFields)
-        ]);
-
-        return $results;
+        return [];
     }
 
     /**

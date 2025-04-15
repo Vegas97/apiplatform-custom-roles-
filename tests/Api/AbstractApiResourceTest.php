@@ -68,7 +68,7 @@ abstract class AbstractApiResourceTest extends WebTestCase
         // Create a JWT token with roles and portal information
         $payload = [
             'sub' => '1',  // Subject (user ID)
-            'roles' => $userRoles,
+            'userRoles' => $userRoles,
             'portal' => $portal,
             'iat' => time(),  // Issued at time
             'exp' => time() + 3600  // Expiration time (1 hour from now)
@@ -104,7 +104,7 @@ abstract class AbstractApiResourceTest extends WebTestCase
 
         // Create the client first
         $client = $this->getAuthenticatedClient($userRoles, $portal);
-        
+
         // Get the logger from the client's container
         $logger = $client->getContainer()->get(LoggerInterface::class);
         $logger->info("Starting {$this->resourceName} collection test", [
@@ -168,11 +168,11 @@ abstract class AbstractApiResourceTest extends WebTestCase
 
         // Check that member array exists
         $this->assertIsArray($jsonResponse['member'], 'Collection member should be an array');
-        
+
         // If there are members, check the fields
         if (!empty($jsonResponse['member'])) {
             $firstMember = $jsonResponse['member'][0];
-            
+
             foreach ($expectedFields as $field) {
                 $this->assertArrayHasKey($field, $firstMember, "Member should have {$field} field");
             }
@@ -204,7 +204,7 @@ abstract class AbstractApiResourceTest extends WebTestCase
 
         // Create the client first to avoid multiple kernel boots
         $client = $this->getAuthenticatedClient($userRoles, $portal);
-        
+
         // Get the logger from the client's container
         $logger = $client->getContainer()->get(LoggerInterface::class);
         $logger->info("Starting {$this->resourceName} item test", [
@@ -311,7 +311,7 @@ abstract class AbstractApiResourceTest extends WebTestCase
 
         // Create the client first
         $client = $this->getAuthenticatedClient($userRoles, $portal);
-        
+
         // Get the logger from the client's container
         $logger = $client->getContainer()->get(LoggerInterface::class);
         $logger->info("Starting {$this->resourceName} test", [
@@ -367,7 +367,7 @@ abstract class AbstractApiResourceTest extends WebTestCase
         // Collection-specific assertions
         if ($isCollection) {
             $this->assertArrayHasKey('member', $jsonResponse, 'Collection should have member key');
-            
+
             if ($expectedItems !== null) {
                 $this->assertArrayHasKey('totalItems', $jsonResponse, 'Collection should have totalItems key');
                 $this->assertEquals($expectedItems, $jsonResponse['totalItems']);
@@ -375,15 +375,13 @@ abstract class AbstractApiResourceTest extends WebTestCase
 
             // Check that member array exists
             $this->assertIsArray($jsonResponse['member'], 'Collection member should be an array');
-            
+
             // If there are members, check the first one
             if (!empty($jsonResponse['member'])) {
                 $firstMember = $jsonResponse['member'][0];
                 foreach ($expectedFields as $field) {
                     $this->assertArrayHasKey($field, $firstMember, "Member should have {$field} field");
                 }
-                
-
             }
         }
         // Item-specific assertions
@@ -391,8 +389,6 @@ abstract class AbstractApiResourceTest extends WebTestCase
             foreach ($expectedFields as $field) {
                 $this->assertArrayHasKey($field, $jsonResponse, "Response should have {$field} field");
             }
-            
-
         }
     }
 }

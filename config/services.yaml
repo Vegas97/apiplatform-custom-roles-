@@ -58,12 +58,7 @@ services:
       $microserviceClient: '@App\Service\MicroserviceClient'
       $mockClient: '@App\Service\MockMicroserviceClient'
 
-  # User DTO Provider with role-based access control
-  App\State\UserDtoProvider:
-    parent: App\State\AbstractDtoProvider
-    tags: ["api_platform.state_provider"]
-
   # Guest Reservation DTO Provider with role-based access control
-  App\State\GuestReservationDtoProvider:
+  App\State\GuestReservationDto\GuestReservationDtoProvider:
     parent: App\State\AbstractDtoProvider
     tags: ["api_platform.state_provider"]

@@ -40,10 +40,11 @@ class GuestReservationDtoProvider extends AbstractDtoProvider implements Provide
      *
      * @param Operation $operation    The operation
      * @param array     $uriVariables The URI variables
+     * @param array     $context      The context
      *
      * @return object|array|null The data
      */
-    public function provide(Operation $operation, array $uriVariables = []): object|array|null
+    public function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
     {
         return parent::provide($operation, $uriVariables);
     }

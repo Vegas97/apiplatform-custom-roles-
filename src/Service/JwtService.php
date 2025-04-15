@@ -120,7 +120,7 @@ class JwtService
      * @param object|null $request    The request object (for fallback in test environment)
      * @param bool        $isTestEnv  Whether we're in a test environment
      * 
-     * @return array An array with 'portal' and 'roles' keys
+     * @return array An array with 'portal' and 'userRoles' keys
      * 
      * @throws UnauthorizedHttpException If authentication fails
      */
@@ -142,18 +142,18 @@ class JwtService
                 throw new UnauthorizedHttpException('Bearer', 'Missing portal in JWT token');
             }
 
-            if (!isset($tokenData->roles) || !is_array($tokenData->roles) || empty($tokenData->roles)) {
-                throw new UnauthorizedHttpException('Bearer', 'Missing roles in JWT token');
+            if (!isset($tokenData->userRoles) || !is_array($tokenData->userRoles) || empty($tokenData->userRoles)) {
+                throw new UnauthorizedHttpException('Bearer', 'Missing userRoles in JWT token');
             }
 
             $this->_logger->info('Using JWT token for authentication', [
                 'portal' => $tokenData->portal,
-                'roles' => $tokenData->roles
+                'userRoles' => $tokenData->userRoles
             ]);
 
             return [
                 'portal' => $tokenData->portal,
-                'roles' => $tokenData->roles
+                'userRoles' => $tokenData->userRoles
             ];
         }
 
@@ -176,12 +176,12 @@ class JwtService
 
             $this->_logger->info('Using query parameters for authentication (test mode)', [
                 'portal' => $portal,
-                'roles' => $userRoles
+                'userRoles' => $userRoles
             ]);
 
             return [
                 'portal' => $portal,
-                'roles' => $userRoles
+                'userRoles' => $userRoles
             ];
         }
 
