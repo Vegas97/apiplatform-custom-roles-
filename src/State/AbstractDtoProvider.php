@@ -265,12 +265,21 @@ abstract class AbstractDtoProvider
             $portal
         );
 
+        // Log accessible fields
+        $this->logger->info('Accessible fields: $accessibleFields', $accessibleFields);
+
         // Get entity mappings with accessible fields
         $entityMappings = $this->getEntityMappings($accessibleFields);
+
+        // Log entity mappings
+        $this->logger->info('Entity mappings $entityMappings', $entityMappings);
 
         // Check if we need multiple entities but have no relationships defined
         if (count($entityMappings) > 1) {
             $relationshipFields = $this->getRelationshipFields();
+
+            // Log relationship fields
+            $this->logger->info('Relationship fields $relationshipFields', $relationshipFields);
 
             // Validate entity relationships and optimize mappings
             $entityMappings = $this->validateAndOptimizeEntityMappings(
@@ -278,6 +287,9 @@ abstract class AbstractDtoProvider
                 $accessibleFields,
                 $relationshipFields
             );
+
+            // Log optimized entity mappings
+            $this->logger->info('Optimized entity mappings $entityMappings', $entityMappings);
         }
 
         // Fetch data from microservices if mappings are available, otherwise use sample data
@@ -549,43 +561,67 @@ abstract class AbstractDtoProvider
      * Get relationship fields between entities.
      *
      * This method analyzes the DTO class to find relationship fields between entities
-     * by looking for MicroserviceRelationship attributes and fields that follow naming
-     * conventions like foreign keys ending with 'Id'.
+     * by looking for MicroserviceRelationship attributes. These relationships are used
+     * to join data from different microservices when building composite DTOs.
      *
-     * @return array Array of relationship field definitions
+     * The returned array has a hierarchical structure:
+     * [
+     *     'propertyName' => [                      // e.g., 'reservation'
+     *         'source' => [
+     *             'entity' => 'sourceEntityName',  // e.g., 'Guest'
+     *             'field'  => 'sourceFieldName'    // e.g., 'reservationId'
+     *         ],
+     *         'target' => [
+     *             'entity' => 'targetEntityName',  // e.g., 'Reservation'
+     *             'field'  => 'targetFieldName'    // e.g., 'id'
+     *         ]
+     *     ]
+     * ]
+     *
+     * @return array Hierarchical array of relationship field definitions
      */
     protected function getRelationshipFields(): array
     {
         $relationships = [];
-        $dtoClass = $this->getDtoClass();
-        $reflection = new ReflectionClass($dtoClass);
+        $reflection = new ReflectionClass($this->getDtoClass());
         $properties = $reflection->getProperties();
 
-        // First look for explicit MicroserviceRelationship attributes
+        // Look for explicit MicroserviceRelationship attributes
         foreach ($properties as $property) {
             $relationshipAttributes = $property->getAttributes(MicroserviceRelationship::class);
 
-            if (!empty($relationshipAttributes)) {
-                $relationship = $relationshipAttributes[0]->newInstance();
-                $fields = $relationship->getFields();
-
-                if (count($fields) >= 2) {
-                    // We have a relationship with at least two fields
-                    $sourceField = $fields[0]->getField();
-                    $targetField = $fields[1]->getField();
-                    $sourceEntity = $fields[0]->getEntity();
-                    $targetEntity = $fields[1]->getEntity();
-
-                    // todo improve this is not clear
-                    $relationships[] = [
-                        'sourceField' => $sourceField,
-                        'targetField' => $targetField,
-                        'sourceEntity' => $sourceEntity,
-                        'relatedEntity' => $targetEntity,
-                        'propertyName' => $property->getName()
-                    ];
-                }
+            if (empty($relationshipAttributes)) {
+                continue;
             }
+
+            $relationshipAttribute = $relationshipAttributes[0]->newInstance();
+            $relationshipFields = $relationshipAttribute->getFields();
+
+            // A valid relationship requires at least two fields (source and target)
+            if (count($relationshipFields) < 2) {
+                $this->logger->warning(
+                    'Invalid relationship attribute: requires at least two fields',
+                    ['property' => $property->getName()]
+                );
+                continue;
+            }
+
+            // Extract source and target field information
+            $sourceFieldObj = $relationshipFields[0];
+            $targetFieldObj = $relationshipFields[1];
+            $propertyName = $property->getName();
+
+            // Create a hierarchical relationship definition
+            $relationships[$propertyName] = [
+                'source' => [
+                    'entity' => $sourceFieldObj->getEntity(),
+                    'field'  => $sourceFieldObj->getField()
+                ],
+                'target' => [
+                    'entity' => $targetFieldObj->getEntity(),
+                    'field'  => $targetFieldObj->getField()
+                ]
+            ];
         }
 
         return $relationships;
@@ -596,7 +632,6 @@ abstract class AbstractDtoProvider
      *
      * @param array   $entityMappings       Array of EntityMappingDto objects
      * @param bool    $isCollectionOperation Whether this is a collection operation
-     * @param bool    $isItemOperation       Whether this is an item operation
      * @param string  $operationName         The name of the operation
      * @param array   $uriVariables         The URI variables
      *
