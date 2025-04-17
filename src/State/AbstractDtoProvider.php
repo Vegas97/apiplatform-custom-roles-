@@ -202,6 +202,13 @@ abstract class AbstractDtoProvider
     protected string $dtoClass = '';
 
     /**
+     * Whether to use mock data.
+     *
+     * @var bool
+     */
+    protected bool $useMockData = false;
+
+    /**
      * Constructor.
      *
      * @param FieldAccessResolver    $fieldAccessResolver Field access resolver service
@@ -249,7 +256,7 @@ abstract class AbstractDtoProvider
      *
      * @return bool True if real data should be used, false for mock data
      */
-    protected function shouldUseRealData(): bool
+    protected function shouldUseMockData(): bool
     {
         // Check for environment variable that controls mocking
         $useMock = $this->parameterBag->has('app.use_mock_data')
@@ -262,7 +269,7 @@ abstract class AbstractDtoProvider
             $useMock = $request->query->get('use_mock') === 'true';
         }
 
-        return !$useMock;
+        return !!$useMock;
     }
 
     /**
@@ -292,6 +299,7 @@ abstract class AbstractDtoProvider
             $this->uriVariables = $uriVariables;
             $this->operationContext = $context;
             $this->dtoClass = $this->getDtoClass();
+            $this->useMockData = $this->shouldUseMockData();
 
             // Get JWT token from request
             $token = $this->jwtService->getTokenFromRequest($this->requestStack->getCurrentRequest());
@@ -301,7 +309,7 @@ abstract class AbstractDtoProvider
 
             // Extract portal and roles from claims
             $this->portal = $claims['portal'];
-            $this->userRoles = $claims['roles'];
+            $this->userRoles = $claims['userRoles'];
 
             $this->logger->info(
                 'Authentication successful',
@@ -346,24 +354,7 @@ abstract class AbstractDtoProvider
         // Get entity mappings and relationship fields, then optimize them if needed
         list($this->entityMappings, $this->relationshipFields) = $this->getEntityMappings();
 
-        // Store relationship fields for later use
-        if (empty($this->relationshipFields)) {
-            $this->relationshipFields = $relationshipFields ?? [];
-        }
-
-        // Optimize entity mappings if we have multiple mappings
-        if (count($this->entityMappings) > 1) {
-            $this->entityMappings = $this->validateAndOptimizeEntityMappings(
-                $this->entityMappings,
-                $this->accessibleFields,
-                $this->relationshipFields
-            );
-
-            // Log optimized entity mappings
-            $this->logger->info('Optimized entity mappings', $this->entityMappings);
-        }
-
-        // Fetch data from microservices if mappings are available, otherwise use sample data
+        // Fetch data from microservices if mappings are available
         if (!empty($this->entityMappings)) {
             $items = $this->fetchFromMicroservices();
         } else {
@@ -428,6 +419,71 @@ abstract class AbstractDtoProvider
     }
 
     /**
+     * Validates the consistency between entity mappings and relationships.
+     * 
+     * This method ensures that the number of relationships is consistent with the number of entity mappings:
+     * - If there's only one entity mapping, there should be no relationships
+     * - If there are N entity mappings, there should be N-1 relationships
+     *
+     * @param array $entityMappings    The entity mappings to validate
+     * @param array $relationshipFields The relationship fields to validate
+     * 
+     * @return void
+     * @throws \RuntimeException If the validation fails
+     */
+    protected function validateEntityMappingsAndRelationships(array $entityMappings, array $relationshipFields): void
+    {
+        $entityCount = count($entityMappings);
+        $relationshipCount = count($relationshipFields);
+
+        // If there's only one entity mapping, there should be no relationships
+        if ($entityCount === 1 && $relationshipCount > 0) {
+            $this->logger->warning(
+                'Validation failed: Single entity mapping should have no relationships',
+                [
+                    'entityCount' => $entityCount,
+                    'relationshipCount' => $relationshipCount,
+                    'entity' => $entityMappings[0]->getEntity()
+                ]
+            );
+            throw new \RuntimeException(
+                'Invalid relationship configuration: Single entity mapping should have no relationships'
+            );
+        }
+
+        // If there are N entity mappings, there should be N-1 relationships
+        if ($entityCount > 1 && $relationshipCount !== ($entityCount - 1)) {
+            $this->logger->warning(
+                'Validation failed: Number of relationships should be one less than number of entity mappings',
+                [
+                    'entityCount' => $entityCount,
+                    'relationshipCount' => $relationshipCount,
+                    'expectedRelationshipCount' => $entityCount - 1,
+                    'entities' => array_map(function ($mapping) {
+                        return $mapping->getEntity();
+                    }, $entityMappings)
+                ]
+            );
+            throw new \RuntimeException(
+                sprintf(
+                    'Invalid relationship configuration: Expected %d relationships for %d entity mappings, got %d',
+                    $entityCount - 1,
+                    $entityCount,
+                    $relationshipCount
+                )
+            );
+        }
+
+        $this->logger->info(
+            'Entity mappings and relationships validation passed',
+            [
+                'entityCount' => $entityCount,
+                'relationshipCount' => $relationshipCount
+            ]
+        );
+    }
+
+    /**
      * Get entity mappings with accessible fields and relationship fields.
      *
      * @return array An array containing two elements:
@@ -445,7 +501,7 @@ abstract class AbstractDtoProvider
         $fieldMap = [];
         $relationshipFields = [];
 
-        // Process all properties in the DTO class
+        // Process all properties (fields) in the DTO class
         $properties = $reflection->getProperties();
 
         // First pass: collect all relationships and entity mappings
@@ -549,15 +605,45 @@ abstract class AbstractDtoProvider
                 );
             }
 
+            // Get entity fields from the field map for context determination
+            $entityFields = array_values($entityFieldMap);
+
+            // Determine the appropriate context for these fields
+            $context = MicroserviceEntityMapping::determineContextForFields(
+                $microservice,
+                $entity,
+                $entityFields
+            );
+
             // Create the EntityMappingDto
             $entityMappings[] = new EntityMappingDto(
                 $microservice,
                 $entity,
                 $endpoint,
-                $entityFieldMap
+                $fields,
+                $entityFieldMap,
+                $context
             );
         }
 
+        // check until here 
+
+        // Optimize entity mappings to reduce unnecessary microservice calls
+        if (count($entityMappings) > 1) {
+            $entityMappings = $this->optimizeEntityMappings($entityMappings, $this->accessibleFields, $relationshipFields);
+
+            $this->logger->info(
+                'Entity mappings after optimization',
+                [
+                    'count' => count($entityMappings),
+                    'entities' => array_map(function ($mapping) {
+                        return $mapping->getEntity();
+                    }, $entityMappings)
+                ]
+            );
+        }
+
+        // Return entity mappings and relationship fields
         return [$entityMappings, $relationshipFields];
     }
 
@@ -625,6 +711,31 @@ abstract class AbstractDtoProvider
             'entity' => $entity,
             'field' => $entityField
         ];
+    }
+
+    /**
+     * Optimizes entity mappings to only include entities that actually need to be fetched.
+     * 
+     * This handles the case where we have fields from multiple entities in the DTO,
+     * but we don't actually need to fetch all of those entities. For example, if we have
+     * guest.id and guest.reservationId, we only need to fetch the guest entity, not the
+     * reservation entity.
+     *
+     * @param array $entityMappings     The original entity mappings
+     * @param array $accessibleFields   The accessible fields for the current request
+     * @param array &$relationshipFields The relationship fields between entities (passed by reference)
+     * 
+     * @return array The optimized entity mappings
+     */
+    protected function optimizeEntityMappings(
+        array $entityMappings,
+        array $accessibleFields,
+        array &$relationshipFields
+    ): array {
+
+        // implement logic
+
+        return $entityMappings;
     }
 
     /**
@@ -777,158 +888,6 @@ abstract class AbstractDtoProvider
         ]);
 
         return $results;
-    }
-
-    /**
-     * Validates entity relationships and throws an error if multiple entities are required
-     * but no relationships are defined. Then optimizes entity mappings to only include
-     * entities that actually need to be fetched.
-     *
-     * @param array $entityMappings     The original entity mappings
-     * @param array $accessibleFields   The accessible fields for the current request
-     * @param array $relationshipFields The relationship fields between entities
-     * 
-     * @return array The validated and optimized entity mappings
-     * @throws \LogicException If multiple entities are required but no relationships are defined
-     */
-    protected function validateAndOptimizeEntityMappings(
-        array $entityMappings,
-        array $accessibleFields,
-        array $relationshipFields
-    ): array {
-        // Check if we actually need to fetch from all entities or just one
-        $requiredEntities = [];
-        foreach ($entityMappings as $mapping) {
-            $requiredEntities[$mapping->getEntity()] = true;
-        }
-
-        // If we need multiple entities but have no relationships, throw an error
-        if (count($requiredEntities) > 1 && empty($relationshipFields)) {
-            $this->logger->error(
-                'Multiple entities required but no relationships defined',
-                [
-                    'entities' => array_keys($requiredEntities),
-                    'dtoClass' => $this->getDtoClass()
-                ]
-            );
-
-            throw new \LogicException(
-                'Multiple entities required but no relationships defined. ' .
-                    'Please define relationships between ' . implode(', ', array_keys($requiredEntities))
-            );
-        }
-
-        // Log the relationship structure for debugging
-        if (!empty($relationshipFields)) {
-            $this->logger->info('Relationship fields', $relationshipFields);
-        }
-
-        // Optimize entity mappings to only include entities we actually need to fetch
-        return $this->optimizeEntityMappings($entityMappings, $accessibleFields, $relationshipFields);
-    }
-
-    /**
-     * Optimizes entity mappings to only include entities that actually need to be fetched.
-     * 
-     * This handles the case where we have fields from multiple entities in the DTO,
-     * but we don't actually need to fetch all of those entities. For example, if we have
-     * guest.id and guest.reservationId, we only need to fetch the guest entity, not the
-     * reservation entity.
-     *
-     * The relationshipFields parameter has the following structure:
-     * [
-     *     'propertyName' => [                      // e.g., 'reservation'
-     *         'source' => [
-     *             'entity' => 'sourceEntityName',  // e.g., 'Guest'
-     *             'field'  => 'sourceFieldName'    // e.g., 'reservationId'
-     *         ],
-     *         'target' => [
-     *             'entity' => 'targetEntityName',  // e.g., 'Reservation'
-     *             'field'  => 'targetFieldName'    // e.g., 'id'
-     *         ]
-     *     ]
-     * ]
-     *
-     * @param array $entityMappings     The original entity mappings
-     * @param array $accessibleFields   The accessible fields for the current request
-     * @param array $relationshipFields The relationship fields between entities
-     * 
-     * @return array The optimized entity mappings
-     */
-    protected function optimizeEntityMappings(
-        array $entityMappings,
-        array $accessibleFields,
-        array $relationshipFields
-    ): array {
-        if (empty($entityMappings) || count($entityMappings) <= 1) {
-            return $entityMappings;
-        }
-
-        // Map each entity to the fields it provides
-        $entityFields = [];
-        $fieldToEntity = [];
-
-        foreach ($entityMappings as $mapping) {
-            $entityName = $mapping->getEntity();
-            $entityFields[$entityName] = [];
-
-            // Get all fields from this entity
-            $reflectionClass = new \ReflectionClass($this->getDtoClass());
-            foreach ($reflectionClass->getProperties() as $property) {
-                foreach ($property->getAttributes(MicroserviceField::class) as $attribute) {
-                    $microserviceField = $attribute->newInstance();
-
-                    if ($microserviceField->getEntity() === $entityName) {
-                        $fieldName = $property->getName();
-                        $entityFields[$entityName][] = $fieldName;
-                        $fieldToEntity[$fieldName] = $entityName;
-                    }
-                }
-            }
-        }
-
-        // Get all fields that are actually being requested in this call
-        $requestedFields = [];
-        foreach ($accessibleFields as $field) {
-            $requestedFields[$field] = true;
-        }
-
-        // Check which entities are actually needed based on the requested fields
-        $requiredEntities = [];
-        foreach ($requestedFields as $field => $value) {
-            if (isset($fieldToEntity[$field])) {
-                $requiredEntities[$fieldToEntity[$field]] = true;
-            }
-        }
-
-        $this->logger->info(
-            'Required entities based on requested fields',
-            [
-                'requiredEntities' => array_keys($requiredEntities),
-                'requestedFields' => array_keys($requestedFields),
-                'hasRelationships' => !empty($relationshipFields)
-            ]
-        );
-
-        // If we only need one entity, optimize the mappings
-        if (count($requiredEntities) === 1) {
-            $requiredEntity = array_key_first($requiredEntities);
-
-            $this->logger->info(
-                'Optimizing entity mappings to a single entity',
-                [
-                    'requiredEntity' => $requiredEntity
-                ]
-            );
-
-            // Filter mappings to only include the required entity
-            return array_filter($entityMappings, function ($mapping) use ($requiredEntity) {
-                return $mapping->getEntity() === $requiredEntity;
-            });
-        }
-
-        // If we need multiple entities, return all mappings to ensure we have all the data we need
-        return $entityMappings;
     }
 
     /**

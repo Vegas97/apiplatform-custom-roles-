@@ -104,6 +104,7 @@ class GuestReservationDto
             [
                 'admin' => ['ACCESS'],
                 'distributor' => ['ACCESS'],
+                'selfcheckin' => ['ACCESS']
             ]
         )]
         #[MicroserviceField(

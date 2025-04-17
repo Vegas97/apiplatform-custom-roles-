@@ -281,7 +281,7 @@ class MicroserviceEntityMapping
 
         return $baseUrl . '/' . $route;
     }
-    
+
     /**
      * Determine the appropriate context level for a set of fields.
      *
@@ -300,43 +300,43 @@ class MicroserviceEntityMapping
         string $microservice,
         string $entity,
         array $requiredFields,
-        string $defaultContext = 'context_normal'
+        string $defaultContext = 'context_ids'
     ): string {
         // If no fields are specified, return the default context
         if (empty($requiredFields)) {
             return $defaultContext;
         }
-        
+
         // Get the context levels in order from lowest to highest
         $contextLevels = ['context_ids', 'context_mini', 'context_normal', 'context_full'];
-        
+
         // For each context level, check if all required fields are available
         foreach ($contextLevels as $contextLevel) {
             $allFieldsAvailable = true;
-            
+
             // Check each required field
             foreach ($requiredFields as $field) {
                 // Skip empty fields
                 if (empty($field)) {
                     continue;
                 }
-                
+
                 // Check if the field is available in this context level
                 if (!self::isFieldAvailableInContext($microservice, $entity, $field, $contextLevel)) {
                     $allFieldsAvailable = false;
                     break;
                 }
             }
-            
+
             // If all fields are available at this context level, return it
             if ($allFieldsAvailable) {
                 return $contextLevel;
             }
         }
-        
+
         // If no suitable context level is found, return the highest level
         return end($contextLevels);
     }
-    
+
     // The determineContext method has been removed as it was redundant with determineContextForFields
 }
