@@ -167,6 +167,13 @@ abstract class AbstractDtoProvider
     protected array $accessibleFields = [];
 
     /**
+     * Entity mappings for the current request.
+     *
+     * @var array
+     */
+    protected array $entityMappings = [];
+
+    /**
      * User roles for the current request.
      *
      * @var array
@@ -336,30 +343,36 @@ abstract class AbstractDtoProvider
             $this->portal
         );
 
-        // Get entity mappings with accessible fields
-        $entityMappings = $this->getEntityMappings($this->accessibleFields);
+        // Get entity mappings and relationship fields, then optimize them if needed
+        list($this->entityMappings, $this->relationshipFields) = $this->getEntityMappings();
 
-        // Check if we need multiple entities but have no relationships defined
-        if (count($entityMappings) > 1) {
-            $this->relationshipFields = $this->getRelationshipFields();
+        // Store relationship fields for later use
+        if (empty($this->relationshipFields)) {
+            $this->relationshipFields = $relationshipFields ?? [];
+        }
 
-            // Validate entity relationships and optimize mappings
-            $entityMappings = $this->validateAndOptimizeEntityMappings(
-                $entityMappings,
+        // Optimize entity mappings if we have multiple mappings
+        if (count($this->entityMappings) > 1) {
+            $this->entityMappings = $this->validateAndOptimizeEntityMappings(
+                $this->entityMappings,
                 $this->accessibleFields,
                 $this->relationshipFields
             );
 
             // Log optimized entity mappings
-            $this->logger->info('Optimized entity mappings $entityMappings', $entityMappings);
+            $this->logger->info('Optimized entity mappings', $this->entityMappings);
         }
 
         // Fetch data from microservices if mappings are available, otherwise use sample data
-        $items = !empty($entityMappings) ? $this->fetchFromMicroservices($entityMappings) : $this->getItems();
+        if (!empty($this->entityMappings)) {
+            $items = $this->fetchFromMicroservices();
+        } else {
+            throw new \RuntimeException('No entity mappings found');
+        }
 
-        // filter
+        // filter  $this->filterItemFields( ....)
 
-        return null; // return $this->filterItemFields( ....)
+        return $items;
     }
 
     /**
@@ -415,44 +428,79 @@ abstract class AbstractDtoProvider
     }
 
     /**
-     * Get entity mappings with accessible fields.
+     * Get entity mappings with accessible fields and relationship fields.
      *
-     * @return array Array of EntityMappingDto objects
+     * @return array An array containing two elements:
+     *               - The first element is an array of EntityMappingDto objects
+     *               - The second element is an array of relationship fields or null if none exist
      */
     protected function getEntityMappings(): array
     {
         if (empty($this->accessibleFields)) {
-            return [];
+            return [[], []];
         }
 
         $reflection = new ReflectionClass($this->dtoClass);
         $groupedFields = [];
+        $fieldMap = [];
+        $relationshipFields = [];
 
-        // Group fields by microservice and entity
-        foreach ($this->accessibleFields as $field) {
-            if (!$reflection->hasProperty($field)) {
-                continue;
-            }
+        // Process all properties in the DTO class
+        $properties = $reflection->getProperties();
 
-            $property = $reflection->getProperty($field);
+        // First pass: collect all relationships and entity mappings
+        foreach ($properties as $property) {
+            $propertyName = $property->getName();
+            $isAccessibleField = in_array($propertyName, $this->accessibleFields);
 
             // Check for MicroserviceRelationship attributes first
             $relationshipAttributes = $property->getAttributes(MicroserviceRelationship::class);
-            $microserviceFields = [];
 
             if (!empty($relationshipAttributes)) {
-                // Process fields from the relationship attribute
-                $relationship = $relationshipAttributes[0]->newInstance();
-                $microserviceFields = $relationship->getFields();
-                $this->logger->info(
-                    'Found MicroserviceRelationship attribute',
-                    [
-                        'property' => $field,
-                        'fieldCount' => count($microserviceFields)
-                    ]
-                );
-            } else {
-                // Fall back to individual MicroserviceField attributes
+                $relationshipAttribute = $relationshipAttributes[0]->newInstance();
+                $relationshipFieldObjs = $relationshipAttribute->getFields();
+
+                // Process relationship fields for entity mappings if this is an accessible field
+                if ($isAccessibleField) {
+                    $this->logger->info(
+                        'Found MicroserviceRelationship attribute',
+                        [
+                            'property' => $propertyName,
+                            'fieldCount' => count($relationshipFieldObjs)
+                        ]
+                    );
+
+                    // Process fields from the relationship attribute for entity mappings
+                    foreach ($relationshipFieldObjs as $microserviceField) {
+                        $this->processEntityMappingField($microserviceField, $propertyName, $groupedFields, $fieldMap);
+                    }
+                }
+
+                // Process relationship fields for relationship mapping
+                // A valid relationship requires at least two fields (source and target)
+                if (count($relationshipFieldObjs) >= 2) {
+                    $sourceFieldObj = $relationshipFieldObjs[0];
+                    $targetFieldObj = $relationshipFieldObjs[1];
+
+                    // Create a hierarchical relationship definition
+                    $relationshipFields[$propertyName] = [
+                        'source' => [
+                            'entity' => $sourceFieldObj->getEntity(),
+                            'field'  => $sourceFieldObj->getField()
+                        ],
+                        'target' => [
+                            'entity' => $targetFieldObj->getEntity(),
+                            'field'  => $targetFieldObj->getField()
+                        ]
+                    ];
+                } else {
+                    $this->logger->warning(
+                        'Invalid relationship attribute: requires at least two fields',
+                        ['property' => $propertyName]
+                    );
+                }
+            } else if ($isAccessibleField) {
+                // Fall back to individual MicroserviceField attributes for accessible fields
                 $microserviceFieldAttributes = $property->getAttributes(MicroserviceField::class);
 
                 if (empty($microserviceFieldAttributes)) {
@@ -461,61 +509,9 @@ abstract class AbstractDtoProvider
 
                 // Convert attribute instances to MicroserviceField objects
                 foreach ($microserviceFieldAttributes as $attributeInstance) {
-                    $microserviceFields[] = $attributeInstance->newInstance();
+                    $microserviceField = $attributeInstance->newInstance();
+                    $this->processEntityMappingField($microserviceField, $propertyName, $groupedFields, $fieldMap);
                 }
-            }
-
-            // Process all microservice fields
-            foreach ($microserviceFields as $microserviceField) {
-                // Ensure we're working with a MicroserviceField object
-                if (!($microserviceField instanceof MicroserviceField)) {
-                    $this->logger->warning(
-                        'Expected MicroserviceField object but got something else',
-                        [
-                            'type' => gettype($microserviceField)
-                        ]
-                    );
-                    continue;
-                }
-
-                $microservice = $microserviceField->getMicroservice();
-                $entity = $microserviceField->getEntity();
-                $entityField = $microserviceField->getField();
-
-                // Check if this field is not available in any context using the MicroserviceEntityMapping
-                if (!MicroserviceEntityMapping::isFieldAvailable($microservice, $entity, $entityField)) {
-                    $this->logger->warning(
-                        'Field not available in any context',
-                        [
-                            'microservice' => $microservice,
-                            'entity' => $entity,
-                            'field' => $entityField
-                        ]
-                    );
-                    continue;
-                }
-
-                // Group by microservice and entity
-                $key = $microservice . ':' . $entity;
-                if (!isset($groupedFields[$key])) {
-                    $groupedFields[$key] = [];
-                }
-
-                // Store the entity field name, not the MicroserviceField object
-                if (!in_array($entityField, $groupedFields[$key])) {
-                    $groupedFields[$key][] = $entityField;
-                }
-
-                // Store field mapping
-                if (!isset($fieldMap[$field])) {
-                    $fieldMap[$field] = [];
-                }
-                $fieldMap[$field][] = [
-                    'microservice' => $microservice,
-                    'entity' => $entity,
-                    'field' => $entityField
-                ];
-                continue;
             }
         }
 
@@ -524,8 +520,6 @@ abstract class AbstractDtoProvider
 
         foreach ($groupedFields as $key => $fields) {
             list($microservice, $entity) = explode(':', $key);
-
-            // No need for context map anymore as we use MicroserviceEntityMapping
 
             // Create field map for this entity
             $entityFieldMap = [];
@@ -548,147 +542,110 @@ abstract class AbstractDtoProvider
             // Get the endpoint from the entity mapping
             $endpoint = MicroserviceEntityMapping::getEndpointForEntity($microservice, $entity);
 
-            // Throw an exception if the endpoint is not defined in the mapping
-            if (null === $endpoint) {
+            // Throw an exception if the endpoint is not defined
+            if (!$endpoint) {
                 throw new \RuntimeException(
-                    sprintf(
-                        'Missing endpoint configuration for entity "%s" in microservice "%s"',
-                        $entity,
-                        $microservice
-                    )
+                    "No endpoint defined for entity {$entity} in microservice {$microservice}"
                 );
             }
 
-            // Get entity fields from the field map for context determination
-            $entityFields = array_values($entityFieldMap);
-
-            // Determine the appropriate context for these fields
-            $context = MicroserviceEntityMapping::determineContextForFields(
-                $microservice,
-                $entity,
-                $entityFields
-            );
-
-            // dump('------------------------------------------------');
-            // dump($microservice, $entity, $entityFields, $context);
-
+            // Create the EntityMappingDto
             $entityMappings[] = new EntityMappingDto(
                 $microservice,
                 $entity,
                 $endpoint,
-                $fields,
-                $entityFieldMap,
-                $context
+                $entityFieldMap
             );
         }
 
-        // Log entity mappings
-        $this->logger->info('Entity mappings $entityMappings', $entityMappings);
-
-        return $entityMappings;
+        return [$entityMappings, $relationshipFields];
     }
 
     /**
-     * Fetch data from microservices based on entity mappings.
+     * Process a microservice field for entity mappings.
      *
-     * @param array $entityMappings Array of EntityMappingDto objects
+     * @param MicroserviceField $microserviceField The microservice field to process
+     * @param string $propertyName The name of the property containing the field
+     * @param array &$groupedFields Reference to the grouped fields array
+     * @param array &$fieldMap Reference to the field map array
      *
-     * @return array Array of DTO objects
+     * @return void
      */
-    /**
-     * Get relationship fields between entities.
-     *
-     * This method analyzes the DTO class to find relationship fields between entities
-     * by looking for MicroserviceRelationship attributes. These relationships are used
-     * to join data from different microservices when building composite DTOs.
-     *
-     * The returned array has a hierarchical structure:
-     * [
-     *     'propertyName' => [                      // e.g., 'reservation'
-     *         'source' => [
-     *             'entity' => 'sourceEntityName',  // e.g., 'Guest'
-     *             'field'  => 'sourceFieldName'    // e.g., 'reservationId'
-     *         ],
-     *         'target' => [
-     *             'entity' => 'targetEntityName',  // e.g., 'Reservation'
-     *             'field'  => 'targetFieldName'    // e.g., 'id'
-     *         ]
-     *     ]
-     * ]
-     *
-     * @return array Hierarchical array of relationship field definitions
-     */
-    protected function getRelationshipFields(): array
-    {
-        $relationships = [];
-        $reflection = new ReflectionClass($this->getDtoClass());
-        $properties = $reflection->getProperties();
-
-        // Look for explicit MicroserviceRelationship attributes
-        foreach ($properties as $property) {
-            $relationshipAttributes = $property->getAttributes(MicroserviceRelationship::class);
-
-            if (empty($relationshipAttributes)) {
-                continue;
-            }
-
-            $relationshipAttribute = $relationshipAttributes[0]->newInstance();
-            $relationshipFields = $relationshipAttribute->getFields();
-
-            // A valid relationship requires at least two fields (source and target)
-            if (count($relationshipFields) < 2) {
-                $this->logger->warning(
-                    'Invalid relationship attribute: requires at least two fields',
-                    ['property' => $property->getName()]
-                );
-                continue;
-            }
-
-            // Extract source and target field information
-            $sourceFieldObj = $relationshipFields[0];
-            $targetFieldObj = $relationshipFields[1];
-            $propertyName = $property->getName();
-
-            // Create a hierarchical relationship definition
-            $relationships[$propertyName] = [
-                'source' => [
-                    'entity' => $sourceFieldObj->getEntity(),
-                    'field'  => $sourceFieldObj->getField()
-                ],
-                'target' => [
-                    'entity' => $targetFieldObj->getEntity(),
-                    'field'  => $targetFieldObj->getField()
+    protected function processEntityMappingField(
+        MicroserviceField $microserviceField,
+        string $propertyName,
+        array &$groupedFields,
+        array &$fieldMap
+    ): void {
+        // Ensure we're working with a MicroserviceField object
+        if (!($microserviceField instanceof MicroserviceField)) {
+            $this->logger->warning(
+                'Expected MicroserviceField object but got something else',
+                [
+                    'type' => gettype($microserviceField)
                 ]
-            ];
+            );
+            return;
         }
 
-        return $relationships;
+        $microservice = $microserviceField->getMicroservice();
+        $entity = $microserviceField->getEntity();
+        $entityField = $microserviceField->getField();
+
+        // Check if this field is not available in any context using the MicroserviceEntityMapping
+        if (!MicroserviceEntityMapping::isFieldAvailable($microservice, $entity, $entityField)) {
+            $this->logger->warning(
+                'Field not available in any context',
+                [
+                    'microservice' => $microservice,
+                    'entity' => $entity,
+                    'field' => $entityField
+                ]
+            );
+            return;
+        }
+
+        // Group by microservice and entity
+        $key = $microservice . ':' . $entity;
+        if (!isset($groupedFields[$key])) {
+            $groupedFields[$key] = [];
+        }
+
+        // Store the entity field name, not the MicroserviceField object
+        if (!in_array($entityField, $groupedFields[$key])) {
+            $groupedFields[$key][] = $entityField;
+        }
+
+        // Store field mapping
+        if (!isset($fieldMap[$propertyName])) {
+            $fieldMap[$propertyName] = [];
+        }
+        $fieldMap[$propertyName][] = [
+            'microservice' => $microservice,
+            'entity' => $entity,
+            'field' => $entityField
+        ];
     }
 
     /**
      * Fetch data from microservices based on entity mappings.
      *
-     * @param array   $entityMappings       Array of EntityMappingDto objects
-     * @param bool    $isCollectionOperation Whether this is a collection operation
-     * @param string  $operationName         The name of the operation
-     * @param array   $uriVariables         The URI variables
+     * @param array  $entityMappings       Array of EntityMappingDto objects
+     * @param bool   $isCollectionOperation Whether this is a collection operation
+     * @param string $operationName         The name of the operation
+     * @param array  $uriVariables          The URI variables
      *
      * @return array Array of DTO objects
      */
-    protected function fetchFromMicroservices(
-        array $entityMappings,
-        bool $isCollectionOperation,
-        string $operationName,
-        array $uriVariables = []
-    ): array {
-        if (empty($entityMappings)) {
+    protected function fetchFromMicroservices(): array
+    {
+        if (empty($this->entityMappings)) {
             return [];
         }
 
-        $dtoClass = $this->getDtoClass();
         $results = [];
         $microserviceData = [];
-        $relationshipFields = $this->getRelationshipFields();
+        $relationshipFields = $this->relationshipFields ?? [];
 
         // Get the current request
         $request = $this->requestStack->getCurrentRequest();
@@ -701,6 +658,7 @@ abstract class AbstractDtoProvider
             }
         }
 
+        // TODO: Implement fetchFromMicroservices
         return [];
     }
 
