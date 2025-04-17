@@ -279,7 +279,6 @@ abstract class AbstractDtoProvider
      */
     protected function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
     {
-        // STEP 1: Authentication
         // authenticate the request and get the portal and user roles
         try {
             // Store URI variables and context at instance level
@@ -313,11 +312,6 @@ abstract class AbstractDtoProvider
             );
             throw $e;
         }
-
-        // STEP 2: Get Input Data
-        // get operation action method (GET Collection, GET Item, POST, PUT, PATCH, DELETE)
-        // if GET, we need to know if it's a collection or item
-        // final input data: actionMethod, isCollection, userRoles, portal, dtoClass
 
         // Store operation data at instance level 
         $this->operationMethod = $operation->getMethod();
@@ -423,22 +417,19 @@ abstract class AbstractDtoProvider
     /**
      * Get entity mappings with accessible fields.
      *
-     * @param array $accessibleFields List of accessible field names
-     *
      * @return array Array of EntityMappingDto objects
      */
-    protected function getEntityMappings(array $accessibleFields): array
+    protected function getEntityMappings(): array
     {
-        if (empty($accessibleFields)) {
+        if (empty($this->accessibleFields)) {
             return [];
         }
 
-        $dtoClass = $this->getDtoClass();
-        $reflection = new ReflectionClass($dtoClass);
+        $reflection = new ReflectionClass($this->dtoClass);
         $groupedFields = [];
 
         // Group fields by microservice and entity
-        foreach ($accessibleFields as $field) {
+        foreach ($this->accessibleFields as $field) {
             if (!$reflection->hasProperty($field)) {
                 continue;
             }
