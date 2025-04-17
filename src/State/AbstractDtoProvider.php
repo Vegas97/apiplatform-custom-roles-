@@ -99,6 +99,69 @@ abstract class AbstractDtoProvider
     protected MockMicroserviceClient $mockClient;
 
     /**
+     * URI variables from the current request.
+     *
+     * @var array
+     */
+    protected array $uriVariables = [];
+
+    /**
+     * Whether the current operation is a collection operation.
+     *
+     * @var bool
+     */
+    protected bool $isCollectionOperation = false;
+
+    /**
+     * The current operation method (GET, POST, etc.).
+     *
+     * @var string
+     */
+    protected string $operationMethod = '';
+
+    /**
+     * Relationship fields between entities.
+     *
+     * @var array
+     */
+    protected array $relationshipFields = [];
+
+    /**
+     * Accessible fields for the current request.
+     *
+     * @var array
+     */
+    protected array $accessibleFields = [];
+
+    /**
+     * User roles for the current request.
+     *
+     * @var array
+     */
+    protected array $userRoles = [];
+
+    /**
+     * Portal for the current request.
+     *
+     * @var string|null
+     */
+    protected ?string $portal = null;
+
+    /**
+     * Operation context from the current request.
+     *
+     * @var array
+     */
+    protected array $operationContext = [];
+
+    /**
+     * DTO class name.
+     *
+     * @var string
+     */
+    protected string $dtoClass = '';
+
+    /**
      * Constructor.
      *
      * @param FieldAccessResolver    $fieldAccessResolver Field access resolver service
@@ -183,45 +246,29 @@ abstract class AbstractDtoProvider
      */
     protected function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
     {
-        // STEP 1: Authenticate
-
-        // Get the current request
-        $request = $this->requestStack->getCurrentRequest();
-
-        // Get the Authorization header
-        $authHeader = $request->headers->get('Authorization');
-
-        // Check if we're in test environment
-        $isTestEnv = $this->parameterBag->get('kernel.environment') === 'test';
-
+        // STEP 1: Authentication
+        // authenticate the request and get the portal and user roles
         try {
-            // Use the JwtService to extract authentication data (portal and roles)
-            // This handles both JWT tokens and query parameters for testing
-            $authData = $this->jwtService->extractAuthData($authHeader, $request, $isTestEnv);
+            // Store URI variables and context at instance level
+            $this->uriVariables = $uriVariables;
+            $this->operationContext = $context;
+            $this->dtoClass = $this->getDtoClass();
 
-            // Dynamically extract portal and roles from the authentication data
-            $portal = $authData['portal'] ?? null;
-            $userRoles = $authData['userRoles'] ?? [];
+            // Get JWT token from request
+            $token = $this->jwtService->getTokenFromRequest($this->requestStack->getCurrentRequest());
 
-            // Validate that we have the required authentication data
-            if (null === $portal) {
-                throw new UnauthorizedHttpException('Bearer', 'Missing portal information in authentication data');
-            }
+            // Validate token and extract claims
+            $claims = $this->jwtService->validateToken($token);
 
-            if (empty($userRoles)) {
-                $this->logger->warning(
-                    'User has no roles assigned',
-                    [
-                        'portal' => $portal
-                    ]
-                );
-            }
+            // Extract portal and roles from claims
+            $this->portal = $claims['portal'];
+            $this->userRoles = $claims['roles'];
 
             $this->logger->info(
                 'Authentication successful',
                 [
-                    'portal' => $portal,
-                    'roles' => $userRoles
+                    'portal' => $this->portal,
+                    'roles' => $this->userRoles
                 ]
             );
         } catch (UnauthorizedHttpException $e) {
@@ -239,53 +286,41 @@ abstract class AbstractDtoProvider
         // if GET, we need to know if it's a collection or item
         // final input data: actionMethod, isCollection, userRoles, portal, dtoClass
 
-
-        $operationMethod = $operation->getMethod();
-        $isCollectionOperation = $operation instanceof CollectionOperationInterface;
-
-        // Get the DTO class name
-        $dtoClass = $this->getDtoClass();
+        // Store operation data at instance level 
+        $this->operationMethod = $operation->getMethod();
+        $this->isCollectionOperation = $operation instanceof CollectionOperationInterface;
 
         // Log the request parameters
         $this->logger->info(
             'Processing request',
             [
-                'actionMethod' => $operationMethod,
-                'isCollection' => $isCollectionOperation,
-                'portal' => $portal,
-                'userRoles' => $userRoles,
-                'dtoClass' => $dtoClass
+                'actionMethod' => $this->operationMethod,
+                'isCollection' => $this->isCollectionOperation,
+                'portal' => $this->portal,
+                'userRoles' => $this->userRoles,
+                'dtoClass' => $this->dtoClass
             ]
         );
 
         // Get accessible fields and entity mappings
-        $accessibleFields = $this->fieldAccessResolver->getAccessibleFields(
-            $dtoClass,
-            $userRoles,
-            $portal
+        $this->accessibleFields = $this->fieldAccessResolver->getAccessibleFields(
+            $this->dtoClass,
+            $this->userRoles,
+            $this->portal
         );
 
-        // Log accessible fields
-        $this->logger->info('Accessible fields: $accessibleFields', $accessibleFields);
-
         // Get entity mappings with accessible fields
-        $entityMappings = $this->getEntityMappings($accessibleFields);
-
-        // Log entity mappings
-        $this->logger->info('Entity mappings $entityMappings', $entityMappings);
+        $entityMappings = $this->getEntityMappings($this->accessibleFields);
 
         // Check if we need multiple entities but have no relationships defined
         if (count($entityMappings) > 1) {
-            $relationshipFields = $this->getRelationshipFields();
-
-            // Log relationship fields
-            $this->logger->info('Relationship fields $relationshipFields', $relationshipFields);
+            $this->relationshipFields = $this->getRelationshipFields();
 
             // Validate entity relationships and optimize mappings
             $entityMappings = $this->validateAndOptimizeEntityMappings(
                 $entityMappings,
-                $accessibleFields,
-                $relationshipFields
+                $this->accessibleFields,
+                $this->relationshipFields
             );
 
             // Log optimized entity mappings
@@ -293,30 +328,25 @@ abstract class AbstractDtoProvider
         }
 
         // Fetch data from microservices if mappings are available, otherwise use sample data
-        $items = !empty($entityMappings) ? $this->fetchFromMicroservices(
-            $entityMappings,
-            $isCollectionOperation,
-            $operationMethod,
-            $uriVariables
-        ) : $this->getItems();
+        $items = !empty($entityMappings) ? $this->fetchFromMicroservices($entityMappings) : $this->getItems();
 
         // If it's a collection operation
-        if ($isCollectionOperation) {
+        if ($this->isCollectionOperation) {
             // Filter each item to only include accessible fields
             return array_map(
-                function ($item) use ($accessibleFields) {
-                    return $this->filterItemFields($item, $accessibleFields);
+                function ($item) {
+                    return $this->filterItemFields($item, $this->accessibleFields);
                 },
                 $items
             );
         }
 
         // If it's an item operation
-        $id = $uriVariables['id'] ?? null;
+        $id = $this->uriVariables['id'] ?? null;
         if ($id) {
             foreach ($items as $item) {
                 if ($item->id === $id) {
-                    return $this->filterItemFields($item, $accessibleFields);
+                    return $this->filterItemFields($item, $this->accessibleFields);
                 }
             }
         }
@@ -332,15 +362,15 @@ abstract class AbstractDtoProvider
      *
      * @return object|null Filtered DTO object or null if no fields are accessible
      */
-    protected function filterItemFields(object $item, array $accessibleFields): ?object
+    protected function filterItemFields(object $item): ?object
     {
         // If no fields are accessible, return null (no access)
-        if (empty($accessibleFields)) {
+        if (empty($this->accessibleFields)) {
             $this->logger->warning(
                 'No accessible fields for item',
                 [
                     'itemId' => $item->id,
-                    'accessibleFields' => $accessibleFields
+                    'accessibleFields' => $this->accessibleFields
                 ]
             );
             return null;
@@ -354,7 +384,7 @@ abstract class AbstractDtoProvider
         // Use reflection to set only the accessible properties
         $reflection = new ReflectionClass($dtoClass);
 
-        foreach ($accessibleFields as $field) {
+        foreach ($this->accessibleFields as $field) {
             if ($reflection->hasProperty($field)) {
                 $property = $reflection->getProperty($field);
                 if ($property->isPublic()) {
@@ -368,7 +398,7 @@ abstract class AbstractDtoProvider
             'Filtered item',
             [
                 'itemId' => $item->id,
-                'accessibleFields' => $accessibleFields,
+                'accessibleFields' => $this->accessibleFields,
                 'result' => json_encode($filteredItem)
             ]
         );
@@ -546,6 +576,9 @@ abstract class AbstractDtoProvider
                 $context
             );
         }
+
+        // Log entity mappings
+        $this->logger->info('Entity mappings $entityMappings', $entityMappings);
 
         return $entityMappings;
     }
@@ -822,6 +855,11 @@ abstract class AbstractDtoProvider
             );
         }
 
+        // Log the relationship structure for debugging
+        if (!empty($relationshipFields)) {
+            $this->logger->info('Relationship fields', $relationshipFields);
+        }
+
         // Optimize entity mappings to only include entities we actually need to fetch
         return $this->optimizeEntityMappings($entityMappings, $accessibleFields, $relationshipFields);
     }
@@ -833,6 +871,20 @@ abstract class AbstractDtoProvider
      * but we don't actually need to fetch all of those entities. For example, if we have
      * guest.id and guest.reservationId, we only need to fetch the guest entity, not the
      * reservation entity.
+     *
+     * The relationshipFields parameter has the following structure:
+     * [
+     *     'propertyName' => [                      // e.g., 'reservation'
+     *         'source' => [
+     *             'entity' => 'sourceEntityName',  // e.g., 'Guest'
+     *             'field'  => 'sourceFieldName'    // e.g., 'reservationId'
+     *         ],
+     *         'target' => [
+     *             'entity' => 'targetEntityName',  // e.g., 'Reservation'
+     *             'field'  => 'targetFieldName'    // e.g., 'id'
+     *         ]
+     *     ]
+     * ]
      *
      * @param array $entityMappings     The original entity mappings
      * @param array $accessibleFields   The accessible fields for the current request

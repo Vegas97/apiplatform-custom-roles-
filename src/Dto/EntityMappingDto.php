@@ -45,10 +45,9 @@ class EntityMappingDto
         public readonly string $endpoint,
         public readonly array $accessibleFields = [],
         public readonly array $fieldMap = [],
-        public readonly string $context = 'context_normal'
-    ) {
-    }
-    
+        public readonly string $context = 'context_ids'
+    ) {}
+
     /**
      * Get the microservice name.
      *
@@ -58,7 +57,7 @@ class EntityMappingDto
     {
         return $this->microservice;
     }
-    
+
     /**
      * Get the entity name.
      *
@@ -68,7 +67,7 @@ class EntityMappingDto
     {
         return $this->entity;
     }
-    
+
     /**
      * Get the endpoint.
      *
@@ -78,7 +77,7 @@ class EntityMappingDto
     {
         return $this->endpoint;
     }
-    
+
     /**
      * Get the field map.
      *
@@ -88,7 +87,7 @@ class EntityMappingDto
     {
         return $this->fieldMap;
     }
-    
+
     /**
      * Get the accessible fields.
      *

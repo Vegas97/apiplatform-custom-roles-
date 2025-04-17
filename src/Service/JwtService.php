@@ -16,12 +16,15 @@ namespace App\Service;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Psr\Log\LoggerInterface;
-use PHPUnit\Framework\MockObject\Stub\Exception;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 /**
  * Service for handling JWT tokens.
+ *
+ * This service handles JWT token creation, validation, and extraction of authentication data.
+ * It supports both production use with real JWT tokens and test environment fallbacks.
  *
  * @category Service
  * @package  App\Service
@@ -73,119 +76,96 @@ class JwtService
     }
 
     /**
-     * Extract and decode the JWT token from the Authorization header.
+     * Get token from request object.
      *
-     * @param string|null $authHeader   The Authorization header value
-     * @param string|null $secretKey    The secret key to use (defaults to test key in test env)
-     * @param bool        $throwOnError Whether to throw an exception on error
-     * 
-     * @return object|null The decoded token payload or null if invalid
-     * 
-     * @throws UnauthorizedHttpException If token is invalid and throwOnError is true
+     * Extracts the JWT token from the Authorization header of the request.
+     *
+     * @param Request|null $request The request object
+     *
+     * @return string|null The JWT token or null if not found
      */
-    public function extractAndDecodeToken(
-        ?string $authHeader,
-        ?string $secretKey = null,
-        bool $throwOnError = true
-    ): ?object {
-        if (!$authHeader || strpos($authHeader, 'Bearer ') !== 0) {
-            if ($throwOnError) {
-                throw new UnauthorizedHttpException('Bearer', 'Missing or invalid Authorization header');
-            }
+    public function getTokenFromRequest(?Request $request): ?string
+    {
+        if (null === $request) {
+            $this->_logger->warning('Request object is null, cannot extract token');
             return null;
         }
 
-        $token = substr($authHeader, 7);
-        $key = $secretKey ?? $this->_getSecretKey();
+        $authHeader = $request->headers->get('Authorization');
+        if (!$authHeader || strpos($authHeader, 'Bearer ') !== 0) {
+            return null;
+        }
 
+        return substr($authHeader, 7);
+    }
+
+    /**
+     * Validate a JWT token and extract claims.
+     *
+     * @param string|null $token The JWT token to validate
+     * 
+     * @return array An array with 'portal' and 'userRoles' keys
+     * 
+     * @throws UnauthorizedHttpException If token validation fails
+     */
+    public function validateToken(?string $token): array
+    {
+        if (empty($token)) {
+            $this->_logger->warning('Empty token provided to validateToken');
+            throw new UnauthorizedHttpException('Bearer', 'Authentication token is required');
+        }
+
+        // Decode the JWT token
         try {
-            return JWT::decode($token, new Key($key, 'HS256'));
+            $tokenData = JWT::decode($token, new Key($this->_getSecretKey(), 'HS256'));
         } catch (\Exception $e) {
             $this->_logger->warning('Failed to decode JWT token', [
                 'error' => $e->getMessage()
             ]);
-
-            if ($throwOnError) {
-                throw new UnauthorizedHttpException('Bearer', 'Invalid JWT token: ' . $e->getMessage());
-            }
-
-            return null;
+            throw new UnauthorizedHttpException('Bearer', 'Invalid JWT token: ' . $e->getMessage());
         }
+
+        // Validate required fields
+        if (!isset($tokenData->portal)) {
+            throw new UnauthorizedHttpException('Bearer', 'Missing portal in JWT token');
+        }
+
+        // Log warning if userroles are missing but don't throw an exception
+        if (!isset($tokenData->userRoles) || !is_array($tokenData->userRoles) || empty($tokenData->userRoles)) {
+            throw new UnauthorizedHttpException('Bearer', 'Missing user roles in JWT token');
+        }
+
+        $this->_logger->info('JWT token validated successfully', [
+            'portal' => $tokenData->portal
+        ]);
+
+        return [
+            'portal' => $tokenData->portal,
+            'userRoles' => $tokenData->userRoles
+        ];
     }
 
     /**
-     * Extract portal and roles from a JWT token or request parameters (for testing).
+     * Get test token for development and testing environments.
+     * 
+     * This method creates a token with test data that can be used in development
+     * and testing environments without needing a real JWT token.
      *
-     * @param string|null $authHeader The Authorization header value
-     * @param object|null $request    The request object (for fallback in test environment)
-     * @param bool        $isTestEnv  Whether we're in a test environment
+     * @param string $portal    The portal to include in the token
+     * @param array  $userRoles The user roles to include in the token
      * 
-     * @return array An array with 'portal' and 'userRoles' keys
-     * 
-     * @throws UnauthorizedHttpException If authentication fails
+     * @return string A JWT token with the provided data
      */
-    public function extractAuthData(
-        ?string $authHeader,
-        ?object $request = null,
-        bool $isTestEnv = false
-    ): array {
-        // Try to extract data from JWT token
-        $tokenData = $this->extractAndDecodeToken(
-            $authHeader,
-            null,
-            !$isTestEnv // Only throw in non-test environments
-        );
+    public function getTestToken(string $portal, array $userRoles = []): string
+    {
+        $payload = [
+            'portal' => $portal,
+            'userRoles' => $userRoles,
+            'iat' => time(),
+            'exp' => time() + 3600 // 1 hour expiration
+        ];
 
-        if ($tokenData) {
-            // Validate required fields
-            if (!isset($tokenData->portal)) {
-                throw new UnauthorizedHttpException('Bearer', 'Missing portal in JWT token');
-            }
-
-            if (!isset($tokenData->userRoles) || !is_array($tokenData->userRoles) || empty($tokenData->userRoles)) {
-                throw new UnauthorizedHttpException('Bearer', 'Missing userRoles in JWT token');
-            }
-
-            $this->_logger->info('Using JWT token for authentication', [
-                'portal' => $tokenData->portal,
-                'userRoles' => $tokenData->userRoles
-            ]);
-
-            return [
-                'portal' => $tokenData->portal,
-                'userRoles' => $tokenData->userRoles
-            ];
-        }
-
-        // Fallback to query parameters for testing
-        if ($isTestEnv && $request) {
-            $portal = $request->query->get('portal');
-            $userRoles = $request->query->get('userRoles', []);
-
-            if (empty($portal)) {
-                throw new UnauthorizedHttpException('Bearer', 'Missing portal parameter');
-            }
-
-            if (!is_array($userRoles)) {
-                $userRoles = [$userRoles];
-            }
-
-            if (empty($userRoles)) {
-                throw new UnauthorizedHttpException('Bearer', 'Missing userRoles parameter');
-            }
-
-            $this->_logger->info('Using query parameters for authentication (test mode)', [
-                'portal' => $portal,
-                'userRoles' => $userRoles
-            ]);
-
-            return [
-                'portal' => $portal,
-                'userRoles' => $userRoles
-            ];
-        }
-
-        throw new UnauthorizedHttpException('Bearer', 'Authentication required');
+        return $this->createToken($payload);
     }
 
     /**

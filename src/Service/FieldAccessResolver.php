@@ -36,14 +36,14 @@ class FieldAccessResolver
      *
      * @var LoggerInterface
      */
-    private LoggerInterface $logger;
+    private LoggerInterface $_logger;
 
     /**
      * Parameter bag for accessing environment variables.
      *
      * @var ParameterBagInterface
      */
-    private ParameterBagInterface $parameterBag;
+    private ParameterBagInterface $_parameterBag;
 
     /**
      * Constructor.
@@ -53,8 +53,8 @@ class FieldAccessResolver
      */
     public function __construct(LoggerInterface $logger, ParameterBagInterface $parameterBag)
     {
-        $this->logger = $logger;
-        $this->parameterBag = $parameterBag;
+        $this->_logger = $logger;
+        $this->_parameterBag = $parameterBag;
     }
 
     /**
@@ -74,8 +74,8 @@ class FieldAccessResolver
         $accessibleFields = [];
 
         // Get BFF name from environment variable, default to null if not set
-        $bffName = $this->parameterBag->has('app.bff_name')
-            ? $this->parameterBag->get('app.bff_name')
+        $bffName = $this->_parameterBag->has('app.bff_name')
+            ? $this->_parameterBag->get('app.bff_name')
             : null;
 
         // Extract the short class name
@@ -100,14 +100,8 @@ class FieldAccessResolver
             }
         }
 
-        // Log the accessible fields
-        $this->logger->info('Accessible fields for {class} with portal {portal}', [
-            'class' => $className,
-            'portal' => $portal,
-            'userRoles' => $userRoles,
-            'bffName' => $bffName,
-            'accessibleFields' => $accessibleFields
-        ]);
+        // Log accessible fields
+        $this->_logger->info('Accessible fields: $accessibleFields', $accessibleFields);
 
         return $accessibleFields;
     }

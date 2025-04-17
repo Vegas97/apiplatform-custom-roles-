@@ -46,7 +46,7 @@ class GuestReservationDtoProvider extends AbstractDtoProvider implements Provide
      */
     public function provide(Operation $operation, array $uriVariables = [], array $context = []): object|array|null
     {
-        return parent::provide($operation, $uriVariables);
+        return parent::provide($operation, $uriVariables, $context);
     }
 
     /**
@@ -57,19 +57,6 @@ class GuestReservationDtoProvider extends AbstractDtoProvider implements Provide
     protected function getDtoClass(): string
     {
         return GuestReservationDto::class;
-    }
-
-    /**
-     * Get entity mappings with accessible fields.
-     *
-     * @param array $accessibleFields List of accessible field names
-     *
-     * @return array Array of EntityMappingDto objects
-     */
-    protected function getEntityMappings(array $accessibleFields): array
-    {
-        // Use the automatic entity mapping from AbstractDtoProvider
-        return parent::getEntityMappings($accessibleFields);
     }
 
     /**
