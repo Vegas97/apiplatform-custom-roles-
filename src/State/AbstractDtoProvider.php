@@ -330,28 +330,9 @@ abstract class AbstractDtoProvider
         // Fetch data from microservices if mappings are available, otherwise use sample data
         $items = !empty($entityMappings) ? $this->fetchFromMicroservices($entityMappings) : $this->getItems();
 
-        // If it's a collection operation
-        if ($this->isCollectionOperation) {
-            // Filter each item to only include accessible fields
-            return array_map(
-                function ($item) {
-                    return $this->filterItemFields($item, $this->accessibleFields);
-                },
-                $items
-            );
-        }
+        // filter
 
-        // If it's an item operation
-        $id = $this->uriVariables['id'] ?? null;
-        if ($id) {
-            foreach ($items as $item) {
-                if ($item->id === $id) {
-                    return $this->filterItemFields($item, $this->accessibleFields);
-                }
-            }
-        }
-
-        return null;
+        return null; // return $this->filterItemFields( ....)
     }
 
     /**
