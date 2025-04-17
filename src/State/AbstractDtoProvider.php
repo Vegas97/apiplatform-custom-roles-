@@ -3,6 +3,39 @@
 /**
  * Abstract DTO Provider for API Platform.
  *
+ * Process flow:
+ * 1- Get operation/request Data
+ * 2- get validate and Get auth data (portal, userRoles)
+ * 3- get accessible fields - what are the allowed fields of the current dto called 
+ * 4- get the entityMapping (that we need to rename in entityMappingCalls) is basically an array of calls that we need to do, each of them has endpoint url to call, context param, ...
+ * 5- get relationships 
+ *
+ * 6- finally we do the calls o fetch.
+ *
+ * 7- format the response to double check that we return only the fields allowed
+ *
+ * 8- return
+ *
+ * ----
+ *
+ * for step 6 we go in detials.
+ *
+ * 1- we do the main call (the first element in entityMappingCalls
+ * 2- we now check if we have more than 0 relationships, if yes contunue otherwise return
+ * 3- loop throught the realtionships, let's go inside
+ * 4- the get current realtionship data.
+ * 5- check if we are in a colleciton or single item, based on that we need to get from the mainCallFetchedData the ids of all items if is a collection, or just 1 id if is a single item.
+ * 6- make a new call folowoitng the current realtionship data, that is telling which is the entity to call  and which param (ids, id, ..) to pass.
+ * 7- now the loop restart. (keep in mind that when reach the logic it's alays the current realtionship that tell us from which data to get the params for the next call)
+ *
+ * 8- we finish all the fetches, we need to merge them with logic
+ * 9- new loop following again the realtionships, we go inside
+ * 10- grab the current realtionship info, pick the fetched data and merge to the second one specified, by the ids specified.
+ * 11- continue the loop
+ *
+ * 12- now we need to format the response.
+ * 13- return
+ *
  * PHP version 8.4
  *
  * @category State
