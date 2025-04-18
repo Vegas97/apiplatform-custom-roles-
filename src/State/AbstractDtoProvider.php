@@ -631,16 +631,6 @@ abstract class AbstractDtoProvider
         // Optimize entity mappings to reduce unnecessary microservice calls
         if (count($entityMappings) > 1) {
             $entityMappings = $this->optimizeEntityMappings($entityMappings, $this->accessibleFields, $relationshipFields);
-
-            $this->logger->info(
-                'Entity mappings after optimization',
-                [
-                    'count' => count($entityMappings),
-                    'entities' => array_map(function ($mapping) {
-                        return $mapping->getEntity();
-                    }, $entityMappings)
-                ]
-            );
         }
 
         // Return entity mappings and relationship fields
@@ -732,10 +722,79 @@ abstract class AbstractDtoProvider
         array $accessibleFields,
         array &$relationshipFields
     ): array {
+        // If we don't have multiple entity mappings, no optimization needed
+        if (count($entityMappings) <= 1) {
+            return $entityMappings;
+        }
 
-        // implement logic
+        // Verify that we have the expected number of relationship fields
+        // For n entity mappings, we should have n-1 relationship fields to connect them
+        if (count($relationshipFields) !== count($entityMappings) - 1) {
+            // If relationship count doesn't match expected, we can't safely optimize
+            return $entityMappings;
+        }
 
-        return $entityMappings;
+        // Keep track of entities that can be removed
+        $entitiesToRemove = [];
+        $optimizedMappings = $entityMappings;
+
+        // First, identify entities that might be removable
+        // An entity is removable if its fields are only used in relationships and
+        // those fields can be retrieved from other entities through the relationships
+        foreach ($relationshipFields as $relationshipName => $relationship) {
+            $sourceEntity = $relationship['source']['entity'];
+            $sourceField = $relationship['source']['field'];
+            $targetEntity = $relationship['target']['entity'];
+            $targetField = $relationship['target']['field'];
+
+            // For each entity mapping, check if it contains only relationship fields
+            foreach ($optimizedMappings as $index => $mapping) {
+                $entity = $mapping->getEntity();
+                $fields = $mapping->getFields();
+
+                // Skip if this entity is already marked for removal
+                if (in_array($entity, $entitiesToRemove, true)) {
+                    continue;
+                }
+
+                // If this is the source entity in the relationship
+                if ($entity === $sourceEntity) {
+                    // Check if the source field is the only field from this entity that we need
+                    $entityFieldsInAccessible = array_filter($accessibleFields, function ($field) use ($fields) {
+                        return in_array($field, $fields, true);
+                    });
+
+                    // If the only field we need from this entity is the relationship field,
+                    // and that field can be retrieved from the target entity, we can remove this entity
+                    if (count($entityFieldsInAccessible) === 1 && in_array($sourceField, $entityFieldsInAccessible, true)) {
+                        $entitiesToRemove[] = $entity;
+                        // Remove this relationship as it's no longer needed
+                        unset($relationshipFields[$relationshipName]);
+                    }
+                }
+                // Same check for target entity
+                elseif ($entity === $targetEntity) {
+                    $entityFieldsInAccessible = array_filter($accessibleFields, function ($field) use ($fields) {
+                        return in_array($field, $fields, true);
+                    });
+
+                    if (count($entityFieldsInAccessible) === 1 && in_array($targetField, $entityFieldsInAccessible, true)) {
+                        $entitiesToRemove[] = $entity;
+                        // Remove this relationship as it's no longer needed
+                        unset($relationshipFields[$relationshipName]);
+                    }
+                }
+            }
+        }
+
+        // Remove the entities that we've identified as unnecessary
+        if (!empty($entitiesToRemove)) {
+            $optimizedMappings = array_filter($optimizedMappings, function ($mapping) use ($entitiesToRemove) {
+                return !in_array($mapping->getEntity(), $entitiesToRemove, true);
+            });
+        }
+
+        return $optimizedMappings;
     }
 
     /**

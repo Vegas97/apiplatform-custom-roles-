@@ -64,7 +64,6 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'workspace' => ['ACCESS'],
                 'distributor' => ['ACCESS'],
                 'selfcheckin' => ['ACCESS']
             ]
@@ -185,7 +184,7 @@ class GuestReservationDto
         #[AllowedRoles(
             [
                 'admin' => ['ACCESS'],
-                'distributor' => [''],
+                'workspace' => ['ACCESS'],
                 'selfcheckin' => ['ACCESS']
             ]
         )]

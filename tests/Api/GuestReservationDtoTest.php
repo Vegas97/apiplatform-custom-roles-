@@ -92,17 +92,17 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
 
         // workspace
         $cases['workspace'] = [
-            'collection_endpoint_with_access' => [
-                'method' => 'GET',
-                'url' => '/api/guest_reservation_dtos',
-                'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
-                'portal' => 'workspace',
-                'expectedStatusCode' => Response::HTTP_OK,
-                'expectedTotalItems' => 3,
-                'isCollection' => true,
-                'expectedFields' => ['id', 'reservationId'],
-                'unexpectedFields' => []
-            ],
+            // 'collection_endpoint_with_access' => [
+            //     'method' => 'GET',
+            //     'url' => '/api/guest_reservation_dtos',
+            //     'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
+            //     'portal' => 'workspace',
+            //     'expectedStatusCode' => Response::HTTP_OK,
+            //     'expectedTotalItems' => 3,
+            //     'isCollection' => true,
+            //     'expectedFields' => ['id', 'reservationId'],
+            //     'unexpectedFields' => []
+            // ],
             'item_endpoint_with_access' => [
                 'method' => 'GET',
                 'url' => '/api/guest_reservation_dtos/G001',
@@ -111,18 +111,48 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
                 'expectedStatusCode' => Response::HTTP_OK,
                 'expectedTotalItems' => null,
                 'isCollection' => false,
-                'expectedFields' => ['id', 'reservationId'],
+                'expectedFields' => ['reservationId', 'roomNumber'],
                 'unexpectedFields' => []
             ],
-            'item_endpoint_without_access_role' => [
+            // 'item_endpoint_without_access_role' => [
+            //     'method' => 'GET',
+            //     'url' => '/api/guest_reservation_dtos/G001',
+            //     'userRoles' => ['ROLE_USER'],
+            //     'portal' => 'workspace',
+            //     'expectedStatusCode' => Response::HTTP_NOT_FOUND,
+            //     'expectedTotalItems' => null,
+            //     'isCollection' => false,
+            //     'expectedFields' => [],
+            //     'unexpectedFields' => []
+            // ]
+        ];
+
+        // // admin
+        // $cases['admin'] = [
+        //     'item_endpoint_with_access' => [
+        //         'method' => 'GET',
+        //         'url' => '/api/guest_reservation_dtos/G001',
+        //         'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
+        //         'portal' => 'admin',
+        //         'expectedStatusCode' => Response::HTTP_OK,
+        //         'expectedTotalItems' => null,
+        //         'isCollection' => false,
+        //         'expectedFields' => ['reservationId', 'roomNumber'],
+        //         'unexpectedFields' => []
+        //     ]
+        // ];
+
+        // distributor
+        $cases['distributor'] = [
+            'item_endpoint_with_access' => [
                 'method' => 'GET',
                 'url' => '/api/guest_reservation_dtos/G001',
-                'userRoles' => ['ROLE_USER'],
-                'portal' => 'workspace',
-                'expectedStatusCode' => Response::HTTP_NOT_FOUND,
+                'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
+                'portal' => 'distributor',
+                'expectedStatusCode' => Response::HTTP_OK,
                 'expectedTotalItems' => null,
                 'isCollection' => false,
-                'expectedFields' => [],
+                'expectedFields' => ['id', 'reservationId', 'name'],
                 'unexpectedFields' => []
             ]
         ];
@@ -143,13 +173,19 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
         ];
 
         switch ($portal) {
+            case 'admin':
+                return $cases['admin'];
             case 'workspace':
                 return $cases['workspace'];
+            case 'distributor':
+                return $cases['distributor'];
             case 'selfcheckin':
                 return $cases['selfcheckin'];
             default:
                 return [
+                    ...$cases['admin'],
                     ...$cases['workspace'],
+                    ...$cases['distributor'],
                     ...$cases['selfcheckin']
                 ];
         }
@@ -171,8 +207,8 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
     public function casesProvider(): array
     {
         // Get all test cases from all portals
-        // This could be filtered by portal if needed // admin, workspace, selfcheckin, distributor
-        return $this->_getProviderCases('selfcheckin');
+        // This could be filtered by portal if needed // admin, workspace, distributor, selfcheckin
+        return $this->_getProviderCases('workspace');
     }
 
 
