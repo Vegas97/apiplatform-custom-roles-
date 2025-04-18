@@ -579,17 +579,16 @@ abstract class AbstractDtoProvider
 
             // Create field map for this entity
             $entityFieldMap = [];
-            foreach ($fields as $entityField) {
-                // Find the DTO property name that maps to this entity field
-                foreach ($fieldMap as $property => $propertyMappings) {
-                    foreach ($propertyMappings as $mapping) {
+            foreach ($fields as $propertyName) {
+                // The $propertyName is now the DTO property name
+                if (isset($fieldMap[$propertyName])) {
+                    foreach ($fieldMap[$propertyName] as $mapping) {
                         if (
                             $mapping['microservice'] === $microservice
                             && $mapping['entity'] === $entity
-                            && $mapping['field'] === $entityField
                         ) {
-                            $entityFieldMap[$property] = $entityField;
-                            break 2;
+                            $entityFieldMap[$propertyName] = $mapping['field'];
+                            break;
                         }
                     }
                 }
@@ -615,12 +614,12 @@ abstract class AbstractDtoProvider
                 $entityFields
             );
 
-            // Create the EntityMappingDto
+            // Create the EntityMappingDto with DTO property names as accessibleFields
             $entityMappings[] = new EntityMappingDto(
                 $microservice,
                 $entity,
                 $endpoint,
-                $fields,
+                $fields, // These are now the DTO property names
                 $entityFieldMap,
                 $context
             );
@@ -688,8 +687,8 @@ abstract class AbstractDtoProvider
         }
 
         // Store the entity field name, not the MicroserviceField object
-        if (!in_array($entityField, $groupedFields[$key])) {
-            $groupedFields[$key][] = $entityField;
+        if (!in_array($propertyName, $groupedFields[$key])) {
+            $groupedFields[$key][] = $propertyName;
         }
 
         // Store field mapping
