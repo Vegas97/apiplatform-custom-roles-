@@ -132,6 +132,34 @@ abstract class AbstractDtoProvider
     protected MockMicroserviceClient $mockClient;
 
     /**
+     * Primary entity microservice name.
+     *
+     * @var string|null
+     */
+    protected ?string $primaryEntityMicroservice = null;
+
+    /**
+     * Primary entity name.
+     *
+     * @var string|null
+     */
+    protected ?string $primaryEntityName = null;
+
+    /**
+     * Primary identifier field name in the entity.
+     *
+     * @var string|null
+     */
+    protected ?string $primaryIdentifierField = null;
+
+    /**
+     * Primary identifier property name in the DTO.
+     *
+     * @var string|null
+     */
+    protected ?string $primaryIdentifierPropertyName = null;
+
+    /**
      * URI variables from the current request.
      *
      * @var array
@@ -285,7 +313,7 @@ abstract class AbstractDtoProvider
      * @logic:
      *  1) auth jwt get portal and userRoles
      *  2) get dto class
-     *  3) get Action + get isCollection + get isItem
+     *  3) get HTTP method + get isCollection + get isItem
      *  4) get accessible fields
      *  5) get entity calls + get relationships
      *  6) fetch data from microservices (+ merge logic)
@@ -513,6 +541,12 @@ abstract class AbstractDtoProvider
         $fieldMap = [];
         $relationshipFields = [];
 
+        // Variables to track primary entity information
+        $primaryEntityMicroservice = null;
+        $primaryEntityName = null;
+        $primaryIdentifierField = null;
+        $primaryIdentifierPropertyName = null;
+
         // Process all properties (fields) in the DTO class
         $properties = $reflection->getProperties();
 
@@ -579,6 +613,25 @@ abstract class AbstractDtoProvider
                 foreach ($microserviceFieldAttributes as $attributeInstance) {
                     $microserviceField = $attributeInstance->newInstance();
                     $this->processEntityMappingField($microserviceField, $propertyName, $groupedFields, $fieldMap);
+
+                    // Check if this field is marked as the primary identifier
+                    if ($microserviceField->isPrimaryIdentifier()) {
+                        $this->logger->info(
+                            'Found primary identifier field',
+                            [
+                                'property' => $propertyName,
+                                'microservice' => $microserviceField->getMicroservice(),
+                                'entity' => $microserviceField->getEntity(),
+                                'field' => $microserviceField->getField()
+                            ]
+                        );
+
+                        // Store primary entity information
+                        $primaryEntityMicroservice = $microserviceField->getMicroservice();
+                        $primaryEntityName = $microserviceField->getEntity();
+                        $primaryIdentifierField = $microserviceField->getField();
+                        $primaryIdentifierPropertyName = $propertyName;
+                    }
                 }
             }
         }
@@ -626,6 +679,24 @@ abstract class AbstractDtoProvider
                 $entityFields
             );
 
+            // Check if this is the primary entity
+            $isPrimaryEntity = ($microservice === $primaryEntityMicroservice && $entity === $primaryEntityName);
+
+            // Get the primary identifier field name for this entity if it's the primary entity
+            $primaryIdField = null;
+            if ($isPrimaryEntity && $primaryIdentifierField) {
+                $primaryIdField = $primaryIdentifierField;
+                $this->logger->info(
+                    'Creating primary entity mapping',
+                    [
+                        'microservice' => $microservice,
+                        'entity' => $entity,
+                        'primaryIdentifierField' => $primaryIdField,
+                        'primaryIdentifierPropertyName' => $primaryIdentifierPropertyName
+                    ]
+                );
+            }
+
             // Create the EntityMappingDto with DTO property names as accessibleFields
             $entityMappings[] = new EntityMappingDto(
                 $microservice,
@@ -633,7 +704,9 @@ abstract class AbstractDtoProvider
                 $endpoint,
                 $fields, // These are now the DTO property names
                 $entityFieldMap,
-                $context
+                $context,
+                $isPrimaryEntity,
+                $primaryIdField
             );
         }
 
@@ -642,6 +715,25 @@ abstract class AbstractDtoProvider
         // Optimize entity mappings to reduce unnecessary microservice calls
         if (count($entityMappings) > 1) {
             $entityMappings = $this->optimizeEntityMappings($entityMappings, $this->accessibleFields, $relationshipFields);
+        }
+
+        // Store primary entity information as class properties for later use
+        if ($primaryEntityMicroservice && $primaryEntityName) {
+            $this->primaryEntityMicroservice = $primaryEntityMicroservice;
+            $this->primaryEntityName = $primaryEntityName;
+            $this->primaryIdentifierField = $primaryIdentifierField;
+            $this->primaryIdentifierPropertyName = $primaryIdentifierPropertyName;
+        } else {
+            // If no primary entity was explicitly marked, use the first entity as primary
+            if (!empty($entityMappings)) {
+                $this->logger->warning(
+                    'No primary entity explicitly marked, using first entity as primary',
+                    ['entity' => reset($entityMappings)->getEntity()]
+                );
+                $this->primaryEntityMicroservice = reset($entityMappings)->getMicroservice();
+                $this->primaryEntityName = reset($entityMappings)->getEntity();
+                // We don't know which field is the primary identifier in this case
+            }
         }
 
         // Return entity mappings and relationship fields
@@ -838,13 +930,45 @@ abstract class AbstractDtoProvider
         $callsDone = [];
         $fetchedData = [];
 
-        // Do first main call (primary entity)
-        $primaryEntityMapping = reset($this->entityMappings);
+        // Find the primary entity mapping (entity marked as primary)
+        $primaryEntityMapping = null;
+        foreach ($this->entityMappings as $entityMapping) {
+            if ($entityMapping->isPrimaryEntity()) {
+                $primaryEntityMapping = $entityMapping;
+                break;
+            }
+        }
+
+        // Fallback to the first entity if no primary entity is explicitly marked
+        if ($primaryEntityMapping === null) {
+            $primaryEntityMapping = reset($this->entityMappings);
+            $this->logger->warning('No primary entity explicitly marked, using first entity', [
+                'microservice' => $primaryEntityMapping->microservice,
+                'entity' => $primaryEntityMapping->entity
+            ]);
+        }
+
         $this->logger->info('Making primary entity call', [
             'microservice' => $primaryEntityMapping->microservice,
             'entity' => $primaryEntityMapping->entity,
-            'endpoint' => $primaryEntityMapping->endpoint
+            'endpoint' => $primaryEntityMapping->endpoint,
+            'isPrimary' => $primaryEntityMapping->isPrimaryEntity() ? 'true' : 'false',
+            'primaryIdentifierField' => $primaryEntityMapping->getPrimaryIdentifierField()
         ]);
+
+        // Prepare parameters for the API call
+        $idParam = $this->id;
+        $idField = null;
+
+        // If this is a primary entity with a defined primary identifier field,
+        // use that field name for the ID parameter
+        if ($primaryEntityMapping->isPrimaryEntity() && $primaryEntityMapping->getPrimaryIdentifierField() !== null) {
+            $idField = $primaryEntityMapping->getPrimaryIdentifierField();
+            $this->logger->info('Using primary identifier field for ID parameter', [
+                'idField' => $idField,
+                'idValue' => $idParam
+            ]);
+        }
 
         // Determine whether to use mock data or real data
         if ($this->useMockData) {
@@ -852,14 +976,16 @@ abstract class AbstractDtoProvider
             $primaryData = $this->mockClient->fetchEntityData(
                 $primaryEntityMapping,
                 $queryParameters,
-                $this->id
+                $idParam,
+                $idField
             );
         } else {
             $this->logger->info('Using real data for primary entity');
             $primaryData = $this->microserviceClient->fetchEntityData(
                 $primaryEntityMapping,
                 $queryParameters,
-                $this->id
+                $idParam,
+                $idField
             );
         }
 
@@ -958,15 +1084,36 @@ abstract class AbstractDtoProvider
                 ]);
 
                 // Fetch data from target entity
+                // Check if the target entity has a primary identifier field
+                $targetIdField = null;
+                if ($targetEntityMapping->isPrimaryEntity() && $targetEntityMapping->getPrimaryIdentifierField() !== null) {
+                    $targetIdField = $targetEntityMapping->getPrimaryIdentifierField();
+                    $this->logger->debug('Using primary identifier field for relationship target', [
+                        'relationship' => $relationshipField->name,
+                        'targetIdField' => $targetIdField
+                    ]);
+                } else {
+                    // Use the target parameter as the ID field if no primary identifier is set
+                    $targetIdField = $relationshipField->targetParam;
+                    $this->logger->debug('Using target parameter as ID field for relationship', [
+                        'relationship' => $relationshipField->name,
+                        'targetIdField' => $targetIdField
+                    ]);
+                }
+
                 if ($this->shouldUseMockData()) {
                     $targetData = $this->mockClient->fetchEntityData(
                         $targetEntityMapping,
-                        $targetParams
+                        $targetParams,
+                        null,  // No specific ID since we're using the targetParams
+                        $targetIdField
                     );
                 } else {
                     $targetData = $this->microserviceClient->fetchEntityData(
                         $targetEntityMapping,
-                        $targetParams
+                        $targetParams,
+                        null,  // No specific ID since we're using the targetParams
+                        $targetIdField
                     );
                 }
 
@@ -983,6 +1130,7 @@ abstract class AbstractDtoProvider
                     'relationship' => $relationshipField->name,
                     'source_entity' => $sourceEntityKey,
                     'target_param' => $relationshipField->targetParam,
+                    'target_id_field' => $targetIdField,
                     'ids_used' => $ids
                 ];
             }

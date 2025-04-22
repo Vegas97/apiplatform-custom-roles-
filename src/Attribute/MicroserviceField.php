@@ -34,14 +34,16 @@ class MicroserviceField
     /**
      * Constructor.
      *
-     * @param string $microservice Microservice name
-     * @param string $entity       Entity name
-     * @param string $field        Field name in the entity
+     * @param string $microservice        Microservice name
+     * @param string $entity              Entity name
+     * @param string $field               Field name in the entity
+     * @param bool   $isPrimaryIdentifier Whether this field is the primary identifier for the entity
      */
     public function __construct(
         private readonly string $microservice,
         private readonly string $entity,
-        private readonly string $field
+        private readonly string $field,
+        private readonly bool $isPrimaryIdentifier = false
     ) {
     }
 
@@ -75,5 +77,13 @@ class MicroserviceField
         return $this->field;
     }
     
-
+    /**
+     * Check if this field is the primary identifier for the entity.
+     *
+     * @return bool
+     */
+    public function isPrimaryIdentifier(): bool
+    {
+        return $this->isPrimaryIdentifier;
+    }
 }

@@ -231,13 +231,15 @@ class MicroserviceClient
      * @param EntityMappingDto $entityMapping  Entity mapping information
      * @param array           $queryParameters Query parameters for the request
      * @param string|null     $id             Optional ID for single item requests
+     * @param string|null     $idField        Optional field name to use for ID lookups
      *
      * @return array The fetched data
      */
     public function fetchEntityData(
         EntityMappingDto $entityMapping,
         array $queryParameters = [],
-        ?string $id = null
+        ?string $id = null,
+        ?string $idField = null
     ): array {
         $microservice = $entityMapping->microservice;
         $entity = $entityMapping->entity;
@@ -252,6 +254,7 @@ class MicroserviceClient
             'context' => $context,
             'hasId' => $id !== null,
             'id' => $id,
+            'idField' => $idField,
             'queryParametersCount' => count($queryParameters),
             'fieldMappingsCount' => count($entityMapping->fieldMappings ?? [])
         ]);
@@ -272,17 +275,39 @@ class MicroserviceClient
             );
         }
 
-        // Make the request using the standard fetch method
-        $result = $this->fetch(
-            $microservice,
-            $endpoint,
-            $context,
-            $queryParameters,
-            'GET',
-            [],
-            [],
-            $id
-        );
+        // If idField is provided, add it to query parameters instead of using path parameter
+        if ($id !== null && $idField !== null) {
+            $this->logger->debug('Using field-based ID lookup', [
+                'idField' => $idField,
+                'idValue' => $id
+            ]);
+            
+            // Add the ID as a query parameter with the specified field name
+            $queryParameters[$idField] = $id;
+            
+            // Make the request using the standard fetch method (without ID in path)
+            $result = $this->fetch(
+                $microservice,
+                $endpoint,
+                $context,
+                $queryParameters,
+                'GET',
+                [],
+                []
+            );
+        } else {
+            // Standard path-based ID lookup
+            $result = $this->fetch(
+                $microservice,
+                $endpoint,
+                $context,
+                $queryParameters,
+                'GET',
+                [],
+                [],
+                $id
+            );
+        }
         
         // Log the result summary
         $this->logger->debug('Entity data request completed', [
@@ -290,7 +315,8 @@ class MicroserviceClient
             'entity' => $entity,
             'resultCount' => is_array($result) ? count($result) : 'not an array',
             'hasId' => $id !== null,
-            'id' => $id
+            'id' => $id,
+            'idField' => $idField
         ]);
         
         return $result;

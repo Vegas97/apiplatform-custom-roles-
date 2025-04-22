@@ -67,13 +67,15 @@ class MockMicroserviceClient
      * @param EntityMappingDto $entityMapping   Entity mapping information
      * @param array            $queryParameters Query parameters for the request
      * @param string|null      $id              Optional ID for single item requests
+     * @param string|null      $idField         Optional field name to use for ID lookups
      *
      * @return array The fetched data
      */
     public function fetchEntityData(
         EntityMappingDto $entityMapping,
         array $queryParameters = [],
-        ?string $id = null
+        ?string $id = null,
+        ?string $idField = null
     ): array {
         $microservice = $entityMapping->microservice;
         $entity = $entityMapping->entity;
@@ -85,7 +87,8 @@ class MockMicroserviceClient
                 'microservice' => $microservice,
                 'entity' => $entity,
                 'context' => $context,
-                'id' => $id
+                'id' => $id,
+                'idField' => $idField
             ]
         );
         
@@ -369,6 +372,20 @@ class MockMicroserviceClient
                 $this->_logger->info('ID parameter takes precedence over ids query parameter');
                 unset($queryParameters['ids']);
             }
+        }
+        
+        // If idField is provided, add it to query parameters for filtering
+        if ($id !== null && $idField !== null) {
+            $this->_logger->info('Using field-based ID lookup', [
+                'idField' => $idField,
+                'idValue' => $id
+            ]);
+            
+            // Add the ID as a query parameter with the specified field name
+            $queryParameters[$idField] = $id;
+            
+            // Since we're using field-based lookup, we don't need to use path-based ID filtering
+            $id = null;
         }
         
         // Apply any additional query parameters filtering
