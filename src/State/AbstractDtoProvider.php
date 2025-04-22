@@ -994,6 +994,9 @@ abstract class AbstractDtoProvider
             'entitiesFetched' => array_keys($fetchedData)
         ]);
 
+        // Map field names from microservice response to DTO field names and apply access control
+        $fetchedData = $this->mapAndFilterFields($fetchedData);
+
         return $fetchedData;
     }
 
@@ -1148,5 +1151,235 @@ abstract class AbstractDtoProvider
         }
 
         return $info;
+    }
+
+    /**
+     * Map field names from microservice response to DTO field names and apply access control.
+     *
+     * This method combines field mapping and access control in a single pass for better performance
+     * and to prevent field name conflicts when merging data from multiple microservices.
+     *
+     * @param array $fetchedData Raw data from microservices
+     *
+     * @return array Data with field names mapped to DTO field names and filtered by access control
+     */
+    protected function mapAndFilterFields(array $fetchedData): array
+    {
+        $mappedData = [];
+
+        // Create a field mapping from all entity mappings
+        $fieldMap = [];
+        $accessibleFields = [];
+
+        // Get the current DTO class for access control
+        $dtoClass = $this->dtoClass ?: get_class($this->resource ?? new \stdClass());
+
+        // Get accessible fields based on user roles and portal
+        if (!empty($this->userRoles) && !empty($this->portal)) {
+            $accessibleFields = $this->fieldAccessResolver->getAccessibleFields(
+                $dtoClass,
+                $this->userRoles,
+                $this->portal
+            );
+
+            $this->logger->debug('Access control enabled', [
+                'dtoClass' => $dtoClass,
+                'accessibleFieldCount' => count($accessibleFields),
+                'userRoles' => $this->userRoles,
+                'portal' => $this->portal
+            ]);
+        } else {
+            $this->logger->debug('Access control disabled - missing user roles or portal');
+        }
+
+        // Build field mapping
+        foreach ($this->entityMappings as $mapping) {
+            $entityKey = $mapping->microservice . '_' . $mapping->entity;
+
+            // Store the field map for this entity
+            if (!isset($fieldMap[$entityKey])) {
+                $fieldMap[$entityKey] = [];
+            }
+
+            // Map microservice field names to DTO field names
+            foreach ($mapping->fieldMap as $dtoField => $entityField) {
+                // Only include fields that are accessible based on user roles
+                if (empty($accessibleFields) || in_array($dtoField, $accessibleFields, true)) {
+                    $fieldMap[$entityKey][$entityField] = $dtoField;
+                } else {
+                    $this->logger->debug('Field filtered by access control', [
+                        'entityKey' => $entityKey,
+                        'field' => $entityField,
+                        'dtoField' => $dtoField
+                    ]);
+                }
+            }
+        }
+
+        $this->logger->debug('Field mapping created with access control', [
+            'entityCount' => count($fieldMap),
+            'entities' => array_keys($fieldMap),
+            'isCollectionOperation' => $this->isCollectionOperation,
+            'accessibleFieldCount' => count($accessibleFields)
+        ]);
+
+        // Process each entity's data
+        foreach ($fetchedData as $entityKey => $entityData) {
+            if (!isset($fieldMap[$entityKey]) || empty($fieldMap[$entityKey])) {
+                // No mapping for this entity or all fields filtered out, keep minimal data
+                // For collections, we still need the structure but with filtered content
+                if ($this->isCollectionOperation && isset($entityData['hydra:member'])) {
+                    $mappedData[$entityKey] = [
+                        'hydra:member' => []
+                    ];
+
+                    // Copy hydra metadata
+                    foreach ($entityData as $key => $value) {
+                        if ($key !== 'hydra:member') {
+                            $mappedData[$entityKey][$key] = $value;
+                        }
+                    }
+                } else {
+                    // For non-collections with no mapping, skip entirely
+                    $this->logger->debug('No field mapping found for entity or all fields filtered', ['entityKey' => $entityKey]);
+                    continue;
+                }
+            } else {
+                // Process based on data structure
+                if (isset($entityData['hydra:member']) && is_array($entityData['hydra:member'])) {
+                    // It's in hydra format
+                    $mappedData[$entityKey] = [
+                        'hydra:member' => []
+                    ];
+
+                    // Copy other hydra metadata
+                    foreach ($entityData as $key => $value) {
+                        if ($key !== 'hydra:member') {
+                            $mappedData[$entityKey][$key] = $value;
+                        }
+                    }
+
+                    $collectionData = $entityData['hydra:member'];
+
+                    // Map and filter each item in the collection
+                    foreach ($collectionData as $item) {
+                        if (!is_array($item)) {
+                            // Skip non-array items
+                            continue;
+                        }
+
+                        $mappedItem = [];
+
+                        // Map fields using the field map (already filtered by access control)
+                        foreach ($item as $field => $value) {
+                            if (isset($fieldMap[$entityKey][$field])) {
+                                $mappedField = $fieldMap[$entityKey][$field];
+                                $mappedItem[$mappedField] = $value;
+                            }
+                        }
+
+                        // Only add the item if it has data after filtering
+                        if (!empty($mappedItem)) {
+                            $mappedData[$entityKey]['hydra:member'][] = $mappedItem;
+                        }
+                    }
+
+                    $this->logger->debug('Mapped and filtered hydra collection', [
+                        'entityKey' => $entityKey,
+                        'originalCount' => count($entityData['hydra:member']),
+                        'mappedCount' => count($mappedData[$entityKey]['hydra:member'])
+                    ]);
+                } elseif (is_array($entityData) && !$this->isAssociativeArray($entityData)) {
+                    // It's a non-hydra collection (indexed array)
+                    $mappedData[$entityKey] = [];
+
+                    // Map and filter each item in the collection
+                    foreach ($entityData as $item) {
+                        if (!is_array($item)) {
+                            // Skip non-array items
+                            continue;
+                        }
+
+                        $mappedItem = [];
+
+                        // Map fields using the field map (already filtered by access control)
+                        foreach ($item as $field => $value) {
+                            if (isset($fieldMap[$entityKey][$field])) {
+                                $mappedField = $fieldMap[$entityKey][$field];
+                                $mappedItem[$mappedField] = $value;
+                            }
+                        }
+
+                        // Only add the item if it has data after filtering
+                        if (!empty($mappedItem)) {
+                            $mappedData[$entityKey][] = $mappedItem;
+                        }
+                    }
+
+                    $this->logger->debug('Mapped and filtered non-hydra collection', [
+                        'entityKey' => $entityKey,
+                        'originalCount' => count($entityData),
+                        'mappedCount' => count($mappedData[$entityKey])
+                    ]);
+                } else {
+                    // Handle single item
+                    if (is_array($entityData)) {
+                        $mappedItem = [];
+
+                        // Map fields using the field map (already filtered by access control)
+                        foreach ($entityData as $field => $value) {
+                            if (isset($fieldMap[$entityKey][$field])) {
+                                $mappedField = $fieldMap[$entityKey][$field];
+                                $mappedItem[$mappedField] = $value;
+                            }
+                        }
+
+                        $mappedData[$entityKey] = $mappedItem;
+
+                        $this->logger->debug('Mapped and filtered single item data', [
+                            'entityKey' => $entityKey,
+                            'originalFieldCount' => count($entityData),
+                            'mappedFieldCount' => count($mappedItem)
+                        ]);
+                    } else {
+                        // Not an array, keep as is if we have any mapping for this entity
+                        $mappedData[$entityKey] = $entityData;
+                        $this->logger->debug('Kept non-array data as is', ['entityKey' => $entityKey]);
+                    }
+                }
+            }
+        }
+
+        return $mappedData;
+    }
+
+    /**
+     * Check if an array is associative (has string keys) or sequential (has numeric keys).
+     *
+     * @param array $array The array to check
+     *
+     * @return bool True if the array is associative, false if it's sequential
+     */
+    private function isAssociativeArray(array $array): bool
+    {
+        if (empty($array)) {
+            return false;
+        }
+
+        return array_keys($array) !== range(0, count($array) - 1);
+    }
+
+    /**
+     * Map field names from microservice response to DTO field names.
+     *
+     * @deprecated Use mapAndFilterFields() instead which also applies access control
+     * @param array $fetchedData Raw data from microservices
+     *
+     * @return array Data with field names mapped to DTO field names
+     */
+    protected function mapFieldNames(array $fetchedData): array
+    {
+        $this->logger->warning('Using deprecated mapFieldNames method - use mapAndFilterFields instead');
+        return $this->mapAndFilterFields($fetchedData);
     }
 }
