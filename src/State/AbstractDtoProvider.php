@@ -335,6 +335,7 @@ abstract class AbstractDtoProvider
             $this->operationContext = $context;
             $this->dtoClass = $this->getDtoClass();
             $this->useMockData = $this->shouldUseMockData();
+            /** @var \ApiPlatform\Metadata\HttpOperation $operation */
             $this->operationMethod = $operation->getMethod();
             $this->isCollectionOperation = $operation instanceof CollectionOperationInterface;
 
@@ -1144,6 +1145,9 @@ abstract class AbstractDtoProvider
 
         // Map field names from microservice response to DTO field names and apply access control
         $fetchedData = $this->mapAndFilterFields($fetchedData);
+
+        // merge the fetchedData following the relationships
+        // ...
 
         return $fetchedData;
     }
