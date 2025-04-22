@@ -209,6 +209,13 @@ abstract class AbstractDtoProvider
     protected bool $useMockData = false;
 
     /**
+     * ID for single item requests.
+     *
+     * @var string|int|null
+     */
+    protected string|int|null $id;
+
+    /**
      * Constructor.
      *
      * @param FieldAccessResolver    $fieldAccessResolver Field access resolver service
@@ -300,6 +307,15 @@ abstract class AbstractDtoProvider
             $this->operationContext = $context;
             $this->dtoClass = $this->getDtoClass();
             $this->useMockData = $this->shouldUseMockData();
+            $this->operationMethod = $operation->getMethod();
+            $this->isCollectionOperation = $operation instanceof CollectionOperationInterface;
+
+            // get the ID (uriVariables are not query parameters)
+            $this->id = $uriVariables['id'] ?? null;
+
+            if (!$this->isCollectionOperation && $this->id === null) {
+                throw new \RuntimeException('ID is required for item operations');
+            }
 
             // Get JWT token from request
             $token = $this->jwtService->getTokenFromRequest($this->requestStack->getCurrentRequest());
@@ -327,10 +343,6 @@ abstract class AbstractDtoProvider
             );
             throw $e;
         }
-
-        // Store operation data at instance level 
-        $this->operationMethod = $operation->getMethod();
-        $this->isCollectionOperation = $operation instanceof CollectionOperationInterface;
 
         // Log the request parameters
         $this->logger->info(
@@ -812,10 +824,6 @@ abstract class AbstractDtoProvider
             return [];
         }
 
-        $results = [];
-        $microserviceData = [];
-        $relationshipFields = $this->relationshipFields ?? [];
-
         // Get the current request
         $request = $this->requestStack->getCurrentRequest();
 
@@ -827,8 +835,166 @@ abstract class AbstractDtoProvider
             }
         }
 
-        // TODO: Implement fetchFromMicroservices
-        return [];
+        $callsDone = [];
+        $fetchedData = [];
+
+        // Do first main call (primary entity)
+        $primaryEntityMapping = reset($this->entityMappings);
+        $this->logger->info('Making primary entity call', [
+            'microservice' => $primaryEntityMapping->microservice,
+            'entity' => $primaryEntityMapping->entity,
+            'endpoint' => $primaryEntityMapping->endpoint
+        ]);
+
+        // Determine whether to use mock data or real data
+        if ($this->useMockData) {
+            $this->logger->info('Using mock data for primary entity');
+            $primaryData = $this->mockClient->fetchEntityData(
+                $primaryEntityMapping,
+                $queryParameters,
+                $this->id
+            );
+        } else {
+            $this->logger->info('Using real data for primary entity');
+            $primaryData = $this->microserviceClient->fetchEntityData(
+                $primaryEntityMapping,
+                $queryParameters,
+                $this->id
+            );
+        }
+
+        // Store the primary data
+        $fetchedData[$primaryEntityMapping->microservice . '_' . $primaryEntityMapping->entity] = $primaryData;
+        $callsDone[] = [
+            'microservice' => $primaryEntityMapping->microservice,
+            'entity' => $primaryEntityMapping->entity,
+            'endpoint' => $primaryEntityMapping->endpoint,
+            'params' => $queryParameters,
+            'result_count' => is_array($primaryData) ? count($primaryData) : 0
+        ];
+
+        // If we have relationships, process them
+        if (!empty($this->relationshipFields)) {
+            $this->logger->info('Processing relationships', [
+                'count' => count($this->relationshipFields)
+            ]);
+
+            // Loop through each relationship
+            foreach ($this->relationshipFields as $relationshipField) {
+                $this->logger->debug('Processing relationship', [
+                    'field' => $relationshipField->name
+                ]);
+
+                // Get the source entity data
+                $sourceEntityKey = $relationshipField->sourceEntity->microservice . '_' . $relationshipField->sourceEntity->entity;
+
+                // Skip if we don't have the source data
+                if (!isset($fetchedData[$sourceEntityKey])) {
+                    $this->logger->warning('Source entity data not found for relationship', [
+                        'sourceEntity' => $sourceEntityKey,
+                        'relationship' => $relationshipField->name
+                    ]);
+                    continue;
+                }
+
+                $sourceData = $fetchedData[$sourceEntityKey];
+
+                // Extract IDs from source data based on the source field
+                $ids = [];
+                $sourceField = $relationshipField->sourceField;
+
+                // Handle collection vs single item
+                if (is_array($sourceData)) {
+                    if (isset($sourceData['hydra:member']) && is_array($sourceData['hydra:member'])) {
+                        // Handle hydra collection
+                        foreach ($sourceData['hydra:member'] as $item) {
+                            if (isset($item[$sourceField]) && !empty($item[$sourceField])) {
+                                $ids[] = $item[$sourceField];
+                            }
+                        }
+                    } else {
+                        // Handle regular array
+                        foreach ($sourceData as $item) {
+                            if (is_array($item) && isset($item[$sourceField]) && !empty($item[$sourceField])) {
+                                $ids[] = $item[$sourceField];
+                            }
+                        }
+                    }
+                } elseif (is_object($sourceData) && isset($sourceData->$sourceField)) {
+                    // Handle single object
+                    $ids[] = $sourceData->$sourceField;
+                }
+
+                // Skip if no IDs found
+                if (empty($ids)) {
+                    $this->logger->warning('No IDs found for relationship', [
+                        'relationship' => $relationshipField->name,
+                        'sourceField' => $sourceField
+                    ]);
+                    continue;
+                }
+
+                // Remove duplicates and prepare for API call
+                $ids = array_unique($ids);
+                $this->logger->debug('Found IDs for relationship', [
+                    'relationship' => $relationshipField->name,
+                    'idCount' => count($ids)
+                ]);
+
+                // Prepare query parameters for the target entity
+                $targetParams = $queryParameters;
+                $targetParams[$relationshipField->targetParam] = implode(',', $ids);
+
+                // Get the target entity mapping
+                $targetEntityMapping = $relationshipField->targetEntity;
+
+                // Make the call to the target entity
+                $this->logger->info('Making relationship entity call', [
+                    'microservice' => $targetEntityMapping->microservice,
+                    'entity' => $targetEntityMapping->entity,
+                    'endpoint' => $targetEntityMapping->endpoint,
+                    'targetParam' => $relationshipField->targetParam,
+                    'idCount' => count($ids)
+                ]);
+
+                // Fetch data from target entity
+                if ($this->shouldUseMockData()) {
+                    $targetData = $this->mockClient->fetchEntityData(
+                        $targetEntityMapping,
+                        $targetParams
+                    );
+                } else {
+                    $targetData = $this->microserviceClient->fetchEntityData(
+                        $targetEntityMapping,
+                        $targetParams
+                    );
+                }
+
+                // Store the target data
+                $targetEntityKey = $targetEntityMapping->microservice . '_' . $targetEntityMapping->entity;
+                $fetchedData[$targetEntityKey] = $targetData;
+
+                $callsDone[] = [
+                    'microservice' => $targetEntityMapping->microservice,
+                    'entity' => $targetEntityMapping->entity,
+                    'endpoint' => $targetEntityMapping->endpoint,
+                    'params' => $targetParams,
+                    'result_count' => is_array($targetData) ? count($targetData) : 0,
+                    'relationship' => $relationshipField->name,
+                    'source_entity' => $sourceEntityKey,
+                    'target_param' => $relationshipField->targetParam,
+                    'ids_used' => $ids
+                ];
+            }
+        }
+
+        // Debug output for calls made
+        $this->logger->info('Completed all microservice calls', [
+            'callCount' => count($callsDone),
+            'entitiesFetched' => array_keys($fetchedData)
+        ]);
+
+        return $fetchedData;
     }
 
     /**

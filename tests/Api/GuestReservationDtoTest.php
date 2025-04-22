@@ -92,28 +92,28 @@ class GuestReservationDtoTest extends AbstractApiResourceTest
 
         // workspace
         $cases['workspace'] = [
-            // 'collection_endpoint_with_access' => [
-            //     'method' => 'GET',
-            //     'url' => '/api/guest_reservation_dtos',
-            //     'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
-            //     'portal' => 'workspace',
-            //     'expectedStatusCode' => Response::HTTP_OK,
-            //     'expectedTotalItems' => 3,
-            //     'isCollection' => true,
-            //     'expectedFields' => ['id', 'reservationId'],
-            //     'unexpectedFields' => []
-            // ],
-            'item_endpoint_with_access' => [
+            'collection_endpoint_with_access' => [
                 'method' => 'GET',
-                'url' => '/api/guest_reservation_dtos/G001',
+                'url' => '/api/guest_reservation_dtos',
                 'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
                 'portal' => 'workspace',
                 'expectedStatusCode' => Response::HTTP_OK,
-                'expectedTotalItems' => null,
-                'isCollection' => false,
-                'expectedFields' => ['reservationId', 'roomNumber'],
+                'expectedTotalItems' => 3,
+                'isCollection' => true,
+                'expectedFields' => ['id', 'reservationId'],
                 'unexpectedFields' => []
             ],
+            // 'item_endpoint_with_access' => [
+            //     'method' => 'GET',
+            //     'url' => '/api/guest_reservation_dtos/R101',
+            //     'userRoles' => ['ROLE_SYSTEMBFF-GUESTRESERVATIONDTO_ACCESS'],
+            //     'portal' => 'workspace',
+            //     'expectedStatusCode' => Response::HTTP_OK,
+            //     'expectedTotalItems' => null,
+            //     'isCollection' => false,
+            //     'expectedFields' => ['reservationId', 'roomNumber'],
+            //     'unexpectedFields' => []
+            // ],
             // 'item_endpoint_without_access_role' => [
             //     'method' => 'GET',
             //     'url' => '/api/guest_reservation_dtos/G001',
